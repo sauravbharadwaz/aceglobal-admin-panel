@@ -10,70 +10,61 @@ import type {
   OnboardingSubmission,
 } from "@/lib/types";
 
-export async function getMeetings(): Promise<Meeting[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("meetings")
-    .select("*")
-    .order("scheduled_at", { ascending: false, nullsFirst: false });
-  if (error) throw new Error(error.message);
-  return (data as Meeting[]) ?? [];
+type OrderOpts = { ascending?: boolean; nullsFirst?: boolean };
+
+/** A Postgres/PostgREST error meaning the table hasn't been created yet. */
+function isMissingTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === "42P01" || error.code === "PGRST205" || error.code === "PGRST202") {
+    return true;
+  }
+  return /does not exist|schema cache|could not find the table/i.test(error.message ?? "");
 }
 
-export async function getInvoices(): Promise<Invoice[]> {
+/**
+ * Fetch all rows from a table. Returns [] when Supabase isn't configured or the
+ * table hasn't been created yet — so a missing migration degrades gracefully
+ * instead of 500-ing the whole page.
+ */
+async function fetchAll<T>(
+  table: string,
+  orderColumn: string,
+  orderOpts: OrderOpts = { ascending: false },
+): Promise<T[]> {
   if (!isSupabaseConfigured) return [];
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("invoices")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data as Invoice[]) ?? [];
+  const { data, error } = await supabase.from(table).select("*").order(orderColumn, orderOpts);
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data as T[]) ?? [];
 }
 
-export async function getExperts(): Promise<Expert[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("experts")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data as Expert[]) ?? [];
+export function getMeetings(): Promise<Meeting[]> {
+  return fetchAll<Meeting>("meetings", "scheduled_at", { ascending: false, nullsFirst: false });
 }
 
-export async function getOnboardingSubmissions(): Promise<OnboardingSubmission[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("onboarding_submissions")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data as OnboardingSubmission[]) ?? [];
+export function getInvoices(): Promise<Invoice[]> {
+  return fetchAll<Invoice>("invoices", "created_at", { ascending: false });
 }
 
-export async function getLeads(): Promise<Lead[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("leads")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data as Lead[]) ?? [];
+export function getExperts(): Promise<Expert[]> {
+  return fetchAll<Expert>("experts", "created_at", { ascending: false });
 }
 
-export async function getClients(): Promise<Client[]> {
-  if (!isSupabaseConfigured) return [];
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("clients")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw new Error(error.message);
-  return (data as Client[]) ?? [];
+export function getOnboardingSubmissions(): Promise<OnboardingSubmission[]> {
+  return fetchAll<OnboardingSubmission>("onboarding_submissions", "created_at", {
+    ascending: false,
+  });
+}
+
+export function getLeads(): Promise<Lead[]> {
+  return fetchAll<Lead>("leads", "created_at", { ascending: false });
+}
+
+export function getClients(): Promise<Client[]> {
+  return fetchAll<Client>("clients", "created_at", { ascending: false });
 }
 
 export interface DashboardData {
