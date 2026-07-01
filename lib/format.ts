@@ -5,6 +5,7 @@ import type {
   LeadStatus,
   MeetingStatus,
   OnboardingStatus,
+  PayoutStatus,
 } from "@/lib/types";
 
 export function formatCurrency(value: number): string {
@@ -81,6 +82,11 @@ export const INVOICE_STATUS_STYLES: Record<InvoiceStatus, string> = {
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
   overdue: "bg-rose-50 text-rose-700 border-rose-200",
   void: "bg-neutral-100 text-neutral-500 border-neutral-200 line-through",
+};
+
+export const PAYOUT_STATUS_STYLES: Record<PayoutStatus, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 /** Formats an ISO timestamp as e.g. "Fri, Jul 3, 2:30 PM". */

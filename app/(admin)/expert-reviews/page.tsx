@@ -1,11 +1,20 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { getExperts, getReviews } from "@/lib/data";
+import { ReviewsTable } from "@/components/reviews/reviews-table";
 
-export default function ExpertReviewsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function ExpertReviewsPage() {
+  const [reviews, experts] = await Promise.all([getReviews(), getExperts()]);
+
   return (
-    <ComingSoon
-      title="Expert Reviews"
-      description="Client ratings and feedback on experts."
-      note="A reviews table linked to experts and clients — star ratings, comments, and averages per expert."
-    />
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Expert Reviews</h1>
+        <p className="text-sm text-muted-foreground">
+          Client ratings and feedback on your experts.
+        </p>
+      </div>
+      <ReviewsTable reviews={reviews} expertNames={experts.map((e) => e.name)} />
+    </div>
   );
 }

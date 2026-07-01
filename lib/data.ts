@@ -8,6 +8,8 @@ import type {
   LeadStatus,
   Meeting,
   OnboardingSubmission,
+  Payout,
+  Review,
 } from "@/lib/types";
 
 type OrderOpts = { ascending?: boolean; nullsFirst?: boolean };
@@ -65,6 +67,14 @@ export function getLeads(): Promise<Lead[]> {
 
 export function getClients(): Promise<Client[]> {
   return fetchAll<Client>("clients", "created_at", { ascending: false });
+}
+
+export function getReviews(): Promise<Review[]> {
+  return fetchAll<Review>("reviews", "created_at", { ascending: false });
+}
+
+export function getPayouts(): Promise<Payout[]> {
+  return fetchAll<Payout>("payouts", "created_at", { ascending: false });
 }
 
 export interface DashboardData {

@@ -76,6 +76,29 @@ export const INVOICE_STATUSES: InvoiceStatus[] = [
   "void",
 ];
 
+export interface Review {
+  id: string;
+  created_at: string;
+  expert: string;
+  client_name: string | null;
+  rating: number;
+  comment: string | null;
+}
+
+export type PayoutStatus = "pending" | "paid";
+
+export interface Payout {
+  id: string;
+  created_at: string;
+  expert: string;
+  period: string | null;
+  amount: number;
+  status: PayoutStatus;
+  notes: string | null;
+}
+
+export const PAYOUT_STATUSES: PayoutStatus[] = ["pending", "paid"];
+
 export type OnboardingService =
   | "bookkeeping"
   | "corporate-tax"

@@ -1,11 +1,20 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { getExperts, getPayouts } from "@/lib/data";
+import { PayoutsTable } from "@/components/payouts/payouts-table";
 
-export default function PayoutsPage() {
+export const dynamic = "force-dynamic";
+
+export default async function PayoutsPage() {
+  const [payouts, experts] = await Promise.all([getPayouts(), getExperts()]);
+
   return (
-    <ComingSoon
-      title="Payouts"
-      description="Expert earnings and payout tracking."
-      note="A payouts table linked to experts — amounts, periods, and status — with an optional Stripe Connect integration later."
-    />
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Payouts</h1>
+        <p className="text-sm text-muted-foreground">
+          Expert earnings and payout tracking.
+        </p>
+      </div>
+      <PayoutsTable payouts={payouts} expertNames={experts.map((e) => e.name)} />
+    </div>
   );
 }
