@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, UserPlus, ClipboardList, Search, ChevronDown } from "lucide-react";
+import { LayoutDashboard, Users, UserPlus, ClipboardList, Search, ChevronDown, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,13 @@ const NAV = [
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
   const initials = email.slice(0, 2).toUpperCase();
+  const [isSigningOut, startTransition] = useTransition();
+
+  function handleSignOut() {
+    startTransition(async () => {
+      await signOut(); // server action clears the Supabase session then redirects to /login
+    });
+  }
 
   return (
     <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur">
@@ -90,14 +98,14 @@ export function TopNav({ email }: { email: string }) {
                 <p className="truncate text-xs text-muted-foreground">{email}</p>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <form action={signOut}>
-                <DropdownMenuItem
-                  render={<button type="submit" className="w-full" />}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  Sign out
-                </DropdownMenuItem>
-              </form>
+              <DropdownMenuItem
+                onClick={handleSignOut}
+                disabled={isSigningOut}
+                className="cursor-pointer text-destructive focus:text-destructive"
+              >
+                <LogOut className="size-4" />
+                {isSigningOut ? "Signing out…" : "Sign out"}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </nav>
