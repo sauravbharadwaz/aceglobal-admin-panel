@@ -3,10 +3,34 @@ import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type {
   Client,
   Expert,
+  Invoice,
   Lead,
   LeadStatus,
+  Meeting,
   OnboardingSubmission,
 } from "@/lib/types";
+
+export async function getMeetings(): Promise<Meeting[]> {
+  if (!isSupabaseConfigured) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("meetings")
+    .select("*")
+    .order("scheduled_at", { ascending: false, nullsFirst: false });
+  if (error) throw new Error(error.message);
+  return (data as Meeting[]) ?? [];
+}
+
+export async function getInvoices(): Promise<Invoice[]> {
+  if (!isSupabaseConfigured) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("invoices")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data as Invoice[]) ?? [];
+}
 
 export async function getExperts(): Promise<Expert[]> {
   if (!isSupabaseConfigured) return [];
@@ -62,6 +86,16 @@ export interface DashboardData {
   recentLeads: Lead[];
   /** New leads per month for the last 6 months. */
   leadsByMonth: { month: string; leads: number }[];
+  // Meetings + invoices (Phase 2)
+  draftInvoices: number;
+  awaitingPayment: number;
+  overdueInvoices: number;
+  upcomingMeetings: number;
+  totalInvoices: number;
+  collected: number;
+  outstanding: number;
+  totalMeetings: number;
+  nextMeetings: Meeting[];
 }
 
 const MONTHS = [
@@ -70,7 +104,12 @@ const MONTHS = [
 ];
 
 export async function getDashboardData(): Promise<DashboardData> {
-  const [leads, clients] = await Promise.all([getLeads(), getClients()]);
+  const [leads, clients, meetings, invoices] = await Promise.all([
+    getLeads(),
+    getClients(),
+    getMeetings(),
+    getInvoices(),
+  ]);
 
   const leadCounts: Record<LeadStatus, number> = {
     new: 0,
@@ -103,6 +142,31 @@ export async function getDashboardData(): Promise<DashboardData> {
     if (bucket) bucket.leads++;
   }
 
+  // Invoice aggregates
+  const draftInvoices = invoices.filter((i) => i.status === "draft").length;
+  const awaitingPayment = invoices.filter((i) => i.status === "sent").length;
+  const overdueInvoices = invoices.filter((i) => i.status === "overdue").length;
+  const collected = invoices
+    .filter((i) => i.status === "paid")
+    .reduce((sum, i) => sum + Number(i.amount ?? 0), 0);
+  const outstanding = invoices
+    .filter((i) => i.status === "sent" || i.status === "overdue")
+    .reduce((sum, i) => sum + Number(i.amount ?? 0), 0);
+
+  // Meeting aggregates
+  const nowMs = now.getTime();
+  const upcoming = meetings
+    .filter(
+      (m) =>
+        m.status === "scheduled" &&
+        m.scheduled_at &&
+        new Date(m.scheduled_at).getTime() >= nowMs,
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime(),
+    );
+
   return {
     leadCounts,
     totalLeads: leads.length,
@@ -112,5 +176,14 @@ export async function getDashboardData(): Promise<DashboardData> {
     mrr,
     recentLeads: leads.slice(0, 6),
     leadsByMonth: buckets.map(({ month, leads }) => ({ month, leads })),
+    draftInvoices,
+    awaitingPayment,
+    overdueInvoices,
+    upcomingMeetings: upcoming.length,
+    totalInvoices: invoices.length,
+    collected,
+    outstanding,
+    totalMeetings: meetings.length,
+    nextMeetings: upcoming.slice(0, 4),
   };
 }

@@ -31,6 +31,51 @@ export const EXPERT_ROLES = [
   "Account Manager",
 ];
 
+export type MeetingType = "call" | "video" | "in-person";
+export type MeetingStatus = "scheduled" | "completed" | "cancelled" | "no-show";
+
+export interface Meeting {
+  id: string;
+  created_at: string;
+  client_name: string;
+  expert: string | null;
+  purpose: string | null;
+  scheduled_at: string | null;
+  type: MeetingType;
+  status: MeetingStatus;
+  notes: string | null;
+}
+
+export const MEETING_TYPES: MeetingType[] = ["call", "video", "in-person"];
+export const MEETING_STATUSES: MeetingStatus[] = [
+  "scheduled",
+  "completed",
+  "cancelled",
+  "no-show",
+];
+
+export type InvoiceStatus = "draft" | "sent" | "paid" | "overdue" | "void";
+
+export interface Invoice {
+  id: string;
+  created_at: string;
+  client_name: string;
+  number: string | null;
+  amount: number;
+  status: InvoiceStatus;
+  issued_at: string | null;
+  due_at: string | null;
+  notes: string | null;
+}
+
+export const INVOICE_STATUSES: InvoiceStatus[] = [
+  "draft",
+  "sent",
+  "paid",
+  "overdue",
+  "void",
+];
+
 export type OnboardingService =
   | "bookkeeping"
   | "corporate-tax"

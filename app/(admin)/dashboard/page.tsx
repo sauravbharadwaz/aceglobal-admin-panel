@@ -5,9 +5,12 @@ import {
   Check,
   DollarSign,
   TrendingUp,
-  UserCheck,
   UserPlus,
   Users,
+  FileText,
+  CalendarDays,
+  Clock,
+  Wallet,
 } from "lucide-react";
 import { getDashboardData } from "@/lib/data";
 import { formatCurrency, timeAgo } from "@/lib/format";
@@ -114,10 +117,15 @@ export default async function DashboardPage() {
             Here&apos;s what&apos;s happening across Ace Global today.
           </p>
         </div>
-        <div className="rounded-lg border bg-card px-3 py-2 text-sm">
-          <span className="text-muted-foreground">Pipeline value · </span>
-          <span className="font-semibold">{formatCurrency(data.mrr)}</span>
-          <span className="text-muted-foreground"> MRR</span>
+        <div className="flex flex-wrap gap-2">
+          <div className="rounded-lg border bg-card px-3 py-2 text-sm">
+            <span className="text-muted-foreground">MRR · </span>
+            <span className="font-semibold">{formatCurrency(data.mrr)}</span>
+          </div>
+          <div className="rounded-lg border bg-card px-3 py-2 text-sm">
+            <span className="text-muted-foreground">Outstanding · </span>
+            <span className="font-semibold">{formatCurrency(data.outstanding)}</span>
+          </div>
         </div>
       </div>
 
@@ -129,36 +137,36 @@ export default async function DashboardPage() {
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <AttentionCard
-            title="New Leads"
-            subtitle="Just came in, no contact yet"
-            count={data.leadCounts.new}
-            icon={UserPlus}
-            tint="bg-blue-50 text-blue-600"
-            href="/leads"
+            title="Draft Invoices"
+            subtitle="Created, not yet sent"
+            count={data.draftInvoices}
+            icon={FileText}
+            tint="bg-neutral-100 text-neutral-600"
+            href="/invoices"
           />
           <AttentionCard
-            title="Contacted"
-            subtitle="Reached out, awaiting reply"
-            count={data.leadCounts.contacted}
-            icon={Activity}
+            title="Awaiting Payment"
+            subtitle="Invoice sent, not paid"
+            count={data.awaitingPayment}
+            icon={DollarSign}
             tint="bg-amber-50 text-amber-600"
-            href="/leads"
+            href="/invoices"
           />
           <AttentionCard
-            title="Qualified"
-            subtitle="Ready to convert"
-            count={data.leadCounts.qualified}
-            icon={UserCheck}
-            tint="bg-violet-50 text-violet-600"
-            href="/leads"
+            title="Overdue"
+            subtitle="Past the due date"
+            count={data.overdueInvoices}
+            icon={Clock}
+            tint="bg-rose-50 text-rose-600"
+            href="/invoices"
           />
           <AttentionCard
-            title="Onboarding"
-            subtitle="New clients to set up"
-            count={data.onboardingClients}
-            icon={Users}
-            tint="bg-emerald-50 text-emerald-600"
-            href="/clients"
+            title="Upcoming Meetings"
+            subtitle="Scheduled ahead"
+            count={data.upcomingMeetings}
+            icon={CalendarDays}
+            tint="bg-blue-50 text-blue-600"
+            href="/meetings"
           />
         </div>
       </section>
@@ -242,11 +250,9 @@ export default async function DashboardPage() {
             <div className="grid grid-cols-2 gap-3">
               <PerfTile label="Leads" value={String(data.totalLeads)} icon={UserPlus} />
               <PerfTile label="Clients" value={String(data.totalClients)} icon={Users} />
-              <PerfTile
-                label="Converted"
-                value={String(data.leadCounts.converted)}
-                icon={UserCheck}
-              />
+              <PerfTile label="Meetings" value={String(data.totalMeetings)} icon={CalendarDays} />
+              <PerfTile label="Invoices" value={String(data.totalInvoices)} icon={FileText} />
+              <PerfTile label="Collected" value={formatCurrency(data.collected)} icon={Wallet} />
               <PerfTile label="MRR" value={formatCurrency(data.mrr)} icon={DollarSign} />
             </div>
             <div>

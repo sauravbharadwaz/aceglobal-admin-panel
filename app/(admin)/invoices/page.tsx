@@ -1,11 +1,20 @@
-import { ComingSoon } from "@/components/coming-soon";
+import { getInvoices } from "@/lib/data";
+import { InvoicesTable } from "@/components/invoices/invoices-table";
 
-export default function InvoicesPage() {
+export const dynamic = "force-dynamic";
+
+export default async function InvoicesPage() {
+  const invoices = await getInvoices();
+
   return (
-    <ComingSoon
-      title="Invoices"
-      description="Client invoices and payment status."
-      note="Invoices will start as a manual table (amount, status, client), with an optional Stripe integration for automatic payment status in a later phase."
-    />
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Invoices</h1>
+        <p className="text-sm text-muted-foreground">
+          Client invoices and payment status.
+        </p>
+      </div>
+      <InvoicesTable invoices={invoices} />
+    </div>
   );
 }

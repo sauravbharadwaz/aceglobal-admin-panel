@@ -1,7 +1,9 @@
 import type {
   ClientStatus,
   ExpertStatus,
+  InvoiceStatus,
   LeadStatus,
+  MeetingStatus,
   OnboardingStatus,
 } from "@/lib/types";
 
@@ -65,6 +67,32 @@ export const EXPERT_STATUS_STYLES: Record<ExpertStatus, string> = {
   inactive: "bg-neutral-100 text-neutral-600 border-neutral-200",
   "on-leave": "bg-amber-50 text-amber-700 border-amber-200",
 };
+
+export const MEETING_STATUS_STYLES: Record<MeetingStatus, string> = {
+  scheduled: "bg-blue-50 text-blue-700 border-blue-200",
+  completed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  cancelled: "bg-neutral-100 text-neutral-600 border-neutral-200",
+  "no-show": "bg-rose-50 text-rose-700 border-rose-200",
+};
+
+export const INVOICE_STATUS_STYLES: Record<InvoiceStatus, string> = {
+  draft: "bg-neutral-100 text-neutral-600 border-neutral-200",
+  sent: "bg-amber-50 text-amber-700 border-amber-200",
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  void: "bg-neutral-100 text-neutral-500 border-neutral-200 line-through",
+};
+
+/** Formats an ISO timestamp as e.g. "Fri, Jul 3, 2:30 PM". */
+export function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
 
 export function titleCase(value: string): string {
   return value

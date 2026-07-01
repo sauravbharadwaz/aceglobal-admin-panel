@@ -3,14 +3,18 @@ import { cn } from "@/lib/utils";
 import {
   CLIENT_STATUS_STYLES,
   EXPERT_STATUS_STYLES,
+  INVOICE_STATUS_STYLES,
   LEAD_STATUS_STYLES,
+  MEETING_STATUS_STYLES,
   ONBOARDING_STATUS_STYLES,
   titleCase,
 } from "@/lib/format";
 import type {
   ClientStatus,
   ExpertStatus,
+  InvoiceStatus,
   LeadStatus,
+  MeetingStatus,
   OnboardingStatus,
 } from "@/lib/types";
 
@@ -41,6 +45,28 @@ export function ExpertStatusBadge({ status }: { status: ExpertStatus }) {
     <Badge
       variant="outline"
       className={cn("font-medium capitalize", EXPERT_STATUS_STYLES[status])}
+    >
+      {titleCase(status)}
+    </Badge>
+  );
+}
+
+export function MeetingStatusBadge({ status }: { status: MeetingStatus }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-medium capitalize", MEETING_STATUS_STYLES[status])}
+    >
+      {titleCase(status)}
+    </Badge>
+  );
+}
+
+export function InvoiceStatusBadge({ status }: { status: InvoiceStatus }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-medium capitalize", INVOICE_STATUS_STYLES[status])}
     >
       {titleCase(status)}
     </Badge>
