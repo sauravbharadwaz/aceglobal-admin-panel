@@ -2,10 +2,22 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type {
   Client,
+  Expert,
   Lead,
   LeadStatus,
   OnboardingSubmission,
 } from "@/lib/types";
+
+export async function getExperts(): Promise<Expert[]> {
+  if (!isSupabaseConfigured) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("experts")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data as Expert[]) ?? [];
+}
 
 export async function getOnboardingSubmissions(): Promise<OnboardingSubmission[]> {
   if (!isSupabaseConfigured) return [];

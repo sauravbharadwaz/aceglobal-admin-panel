@@ -3,7 +3,25 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Users, UserPlus, ClipboardList, Search, ChevronDown, LogOut } from "lucide-react";
+import {
+  LayoutDashboard,
+  Users,
+  UserPlus,
+  ClipboardList,
+  CalendarDays,
+  FileText,
+  MessageSquare,
+  Search,
+  ChevronDown,
+  LogOut,
+  TrendingUp,
+  UserCog,
+  Star,
+  Timer,
+  BarChart3,
+  Wallet,
+  Settings,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOut } from "@/app/auth/actions";
 import { Button } from "@/components/ui/button";
@@ -22,6 +40,19 @@ const NAV = [
   { href: "/leads", label: "Leads", icon: UserPlus },
   { href: "/onboarding", label: "Onboarding", icon: ClipboardList },
   { href: "/clients", label: "Clients", icon: Users },
+  { href: "/meetings", label: "Meetings", icon: CalendarDays },
+  { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/chats", label: "Chats", icon: MessageSquare },
+];
+
+const ADMIN_MENU = [
+  { href: "/expert-performance", label: "Expert Performance", icon: TrendingUp },
+  { href: "/experts", label: "Manage Experts", icon: UserCog },
+  { href: "/expert-reviews", label: "Expert Reviews", icon: Star },
+  { href: "/tat-metrics", label: "TAT Metrics", icon: Timer },
+  { href: "/insights", label: "Insights", icon: BarChart3 },
+  { href: "/payouts", label: "Payouts", icon: Wallet },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 export function TopNav({ email }: { email: string }) {
@@ -77,7 +108,7 @@ export function TopNav({ email }: { email: string }) {
                 )}
               >
                 <Icon className="size-4" />
-                <span className="hidden lg:inline">{label}</span>
+                <span className="hidden xl:inline">{label}</span>
               </Link>
             );
           })}
@@ -97,6 +128,17 @@ export function TopNav({ email }: { email: string }) {
                 <p className="text-sm font-medium">Signed in as</p>
                 <p className="truncate text-xs text-muted-foreground">{email}</p>
               </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {ADMIN_MENU.map(({ href, label, icon: Icon }) => (
+                <DropdownMenuItem
+                  key={href}
+                  render={<Link href={href} />}
+                  className="cursor-pointer"
+                >
+                  <Icon className="size-4" />
+                  {label}
+                </DropdownMenuItem>
+              ))}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={handleSignOut}

@@ -7,6 +7,30 @@ export type LeadStatus =
 
 export type ClientStatus = "active" | "onboarding" | "inactive" | "churned";
 
+export type ExpertStatus = "active" | "inactive" | "on-leave";
+
+export interface Expert {
+  id: string;
+  created_at: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  specialties: string | null;
+  status: ExpertStatus;
+  notes: string | null;
+}
+
+export const EXPERT_STATUSES: ExpertStatus[] = ["active", "inactive", "on-leave"];
+
+export const EXPERT_ROLES = [
+  "CPA",
+  "Bookkeeper",
+  "Tax Specialist",
+  "Reviewer",
+  "Account Manager",
+];
+
 export type OnboardingService =
   | "bookkeeping"
   | "corporate-tax"

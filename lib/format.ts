@@ -1,4 +1,9 @@
-import type { ClientStatus, LeadStatus, OnboardingStatus } from "@/lib/types";
+import type {
+  ClientStatus,
+  ExpertStatus,
+  LeadStatus,
+  OnboardingStatus,
+} from "@/lib/types";
 
 export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -53,6 +58,12 @@ export const ONBOARDING_STATUS_STYLES: Record<OnboardingStatus, string> = {
   quoted: "bg-violet-50 text-violet-700 border-violet-200",
   won: "bg-emerald-50 text-emerald-700 border-emerald-200",
   lost: "bg-rose-50 text-rose-700 border-rose-200",
+};
+
+export const EXPERT_STATUS_STYLES: Record<ExpertStatus, string> = {
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  inactive: "bg-neutral-100 text-neutral-600 border-neutral-200",
+  "on-leave": "bg-amber-50 text-amber-700 border-amber-200",
 };
 
 export function titleCase(value: string): string {
