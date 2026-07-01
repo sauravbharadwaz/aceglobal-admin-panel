@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useTransition } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -57,6 +57,7 @@ const ADMIN_MENU = [
 
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
+  const router = useRouter();
   const initials = email.slice(0, 2).toUpperCase();
   const [isSigningOut, startTransition] = useTransition();
 
@@ -132,7 +133,7 @@ export function TopNav({ email }: { email: string }) {
               {ADMIN_MENU.map(({ href, label, icon: Icon }) => (
                 <DropdownMenuItem
                   key={href}
-                  render={<Link href={href} />}
+                  onClick={() => router.push(href)}
                   className="cursor-pointer"
                 >
                   <Icon className="size-4" />
