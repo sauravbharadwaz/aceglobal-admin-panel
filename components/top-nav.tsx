@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useTransition } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Users,
@@ -12,28 +11,9 @@ import {
   FileText,
   MessageSquare,
   Search,
-  ChevronDown,
-  LogOut,
-  TrendingUp,
-  UserCog,
-  Star,
-  Timer,
-  BarChart3,
-  Wallet,
-  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { signOut } from "@/app/auth/actions";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AdminMenu } from "@/components/admin-menu";
 
 const NAV = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -45,27 +25,8 @@ const NAV = [
   { href: "/chats", label: "Chats", icon: MessageSquare },
 ];
 
-const ADMIN_MENU = [
-  { href: "/expert-performance", label: "Expert Performance", icon: TrendingUp },
-  { href: "/experts", label: "Manage Experts", icon: UserCog },
-  { href: "/expert-reviews", label: "Expert Reviews", icon: Star },
-  { href: "/tat-metrics", label: "TAT Metrics", icon: Timer },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
-  { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
-
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const initials = email.slice(0, 2).toUpperCase();
-  const [isSigningOut, startTransition] = useTransition();
-
-  function handleSignOut() {
-    startTransition(async () => {
-      await signOut(); // server action clears the Supabase session then redirects to /login
-    });
-  }
 
   return (
     <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur">
@@ -114,43 +75,7 @@ export function TopNav({ email }: { email: string }) {
             );
           })}
 
-          <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="ghost" className="ml-1 gap-2 px-2" />}>
-              <Avatar className="size-7">
-                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <span className="hidden text-sm font-medium sm:inline">Admin</span>
-              <ChevronDown className="size-4 text-muted-foreground" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="font-normal">
-                <p className="text-sm font-medium">Signed in as</p>
-                <p className="truncate text-xs text-muted-foreground">{email}</p>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {ADMIN_MENU.map(({ href, label, icon: Icon }) => (
-                <DropdownMenuItem
-                  key={href}
-                  onClick={() => router.push(href)}
-                  className="cursor-pointer"
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleSignOut}
-                disabled={isSigningOut}
-                className="cursor-pointer text-destructive focus:text-destructive"
-              >
-                <LogOut className="size-4" />
-                {isSigningOut ? "Signing out…" : "Sign out"}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <AdminMenu email={email} />
         </nav>
       </div>
     </header>
