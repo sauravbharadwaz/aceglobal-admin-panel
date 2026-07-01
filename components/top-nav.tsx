@@ -2,35 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  LayoutDashboard,
-  Users,
-  UserPlus,
-  ClipboardList,
-  CalendarDays,
-  FileText,
-  MessageSquare,
-  Search,
-} from "lucide-react";
+import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { NAV_ITEMS } from "@/lib/nav";
 import { AdminMenu } from "@/components/admin-menu";
-
-const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/leads", label: "Leads", icon: UserPlus },
-  { href: "/onboarding", label: "Onboarding", icon: ClipboardList },
-  { href: "/clients", label: "Clients", icon: Users },
-  { href: "/meetings", label: "Meetings", icon: CalendarDays },
-  { href: "/invoices", label: "Invoices", icon: FileText },
-  { href: "/chats", label: "Chats", icon: MessageSquare },
-];
+import { MobileNav } from "@/components/mobile-nav";
 
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
 
   return (
     <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:gap-4 sm:px-6">
+        {/* Mobile hamburger */}
+        <MobileNav email={email} />
+
         {/* Logo */}
         <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
           <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
@@ -41,8 +27,8 @@ export function TopNav({ email }: { email: string }) {
           </span>
         </Link>
 
-        {/* Search (decorative ⌘K affordance) */}
-        <div className="relative hidden flex-1 md:block">
+        {/* Search (desktop only) */}
+        <div className="relative hidden flex-1 lg:block">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
@@ -54,9 +40,9 @@ export function TopNav({ email }: { email: string }) {
           </kbd>
         </div>
 
-        {/* Nav links */}
-        <nav className="ml-auto flex items-center gap-1">
-          {NAV.map(({ href, label, icon: Icon }) => {
+        {/* Desktop nav links + admin menu */}
+        <nav className="ml-auto hidden items-center gap-1 lg:flex">
+          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(href + "/");
             return (
               <Link
@@ -74,7 +60,6 @@ export function TopNav({ email }: { email: string }) {
               </Link>
             );
           })}
-
           <AdminMenu email={email} />
         </nav>
       </div>

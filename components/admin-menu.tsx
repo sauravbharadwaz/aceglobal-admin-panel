@@ -2,30 +2,11 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import {
-  ChevronDown,
-  LogOut,
-  TrendingUp,
-  UserCog,
-  Star,
-  Timer,
-  BarChart3,
-  Wallet,
-  Settings,
-} from "lucide-react";
+import { ChevronDown, LogOut } from "lucide-react";
 import { signOut } from "@/app/auth/actions";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-
-const ITEMS = [
-  { href: "/expert-performance", label: "Expert Performance", icon: TrendingUp },
-  { href: "/experts", label: "Manage Experts", icon: UserCog },
-  { href: "/expert-reviews", label: "Expert Reviews", icon: Star },
-  { href: "/tat-metrics", label: "TAT Metrics", icon: Timer },
-  { href: "/insights", label: "Insights", icon: BarChart3 },
-  { href: "/payouts", label: "Payouts", icon: Wallet },
-  { href: "/settings", label: "Settings", icon: Settings },
-];
+import { ADMIN_ITEMS as ITEMS } from "@/lib/nav";
 
 /**
  * Self-contained Admin dropdown. Built with plain React (no Base UI Menu) so it
