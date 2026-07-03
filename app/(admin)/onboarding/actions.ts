@@ -20,6 +20,21 @@ export async function updateOnboardingStatus(
   return { error: null };
 }
 
+export async function updateFilingStage(
+  id: string,
+  stage: number,
+): Promise<Result> {
+  const s = Math.max(0, Math.min(5, Math.round(Number(stage) || 0)));
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("onboarding_submissions")
+    .update({ filing_stage: s })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/onboarding");
+  return { error: null };
+}
+
 export async function deleteOnboardingSubmission(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase

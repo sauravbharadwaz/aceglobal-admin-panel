@@ -5,6 +5,7 @@ import type {
   LeadStatus,
   MeetingStatus,
   OnboardingStatus,
+  PaymentStatus,
   PayoutStatus,
 } from "@/lib/types";
 
@@ -85,6 +86,11 @@ export const INVOICE_STATUS_STYLES: Record<InvoiceStatus, string> = {
 };
 
 export const PAYOUT_STATUS_STYLES: Record<PayoutStatus, string> = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
+export const PAYMENT_STATUS_STYLES: Record<PaymentStatus, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };

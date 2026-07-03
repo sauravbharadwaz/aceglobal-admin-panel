@@ -7,6 +7,7 @@ import {
   LEAD_STATUS_STYLES,
   MEETING_STATUS_STYLES,
   ONBOARDING_STATUS_STYLES,
+  PAYMENT_STATUS_STYLES,
   PAYOUT_STATUS_STYLES,
   titleCase,
 } from "@/lib/format";
@@ -17,6 +18,7 @@ import type {
   LeadStatus,
   MeetingStatus,
   OnboardingStatus,
+  PaymentStatus,
   PayoutStatus,
 } from "@/lib/types";
 
@@ -91,6 +93,17 @@ export function OnboardingStatusBadge({ status }: { status: OnboardingStatus }) 
     <Badge
       variant="outline"
       className={cn("font-medium capitalize", ONBOARDING_STATUS_STYLES[status])}
+    >
+      {titleCase(status)}
+    </Badge>
+  );
+}
+
+export function PaymentStatusBadge({ status }: { status: PaymentStatus }) {
+  return (
+    <Badge
+      variant="outline"
+      className={cn("font-medium capitalize", PAYMENT_STATUS_STYLES[status])}
     >
       {titleCase(status)}
     </Badge>

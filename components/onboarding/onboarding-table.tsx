@@ -5,17 +5,20 @@ import { Eye, MoreHorizontal, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteOnboardingSubmission,
+  updateFilingStage,
   updateOnboardingStatus,
 } from "@/app/(admin)/onboarding/actions";
 import {
+  FILING_STAGES,
   ONBOARDING_SERVICE_LABELS,
   ONBOARDING_STATUSES,
   type OnboardingStatus,
   type OnboardingSubmission,
+  type PaymentStatus,
 } from "@/lib/types";
-import { formatDate, titleCase } from "@/lib/format";
+import { formatCurrency, formatDate, formatDateTime, titleCase } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { OnboardingStatusBadge } from "@/components/status-badge";
+import { OnboardingStatusBadge, PaymentStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -69,6 +72,7 @@ export function OnboardingTable({
   submissions: OnboardingSubmission[];
 }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [payFilter, setPayFilter] = useState<"all" | PaymentStatus>("all");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<OnboardingSubmission | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -79,8 +83,18 @@ export function OnboardingTable({
     return c;
   }, [submissions]);
 
+  const payCounts = useMemo(() => {
+    const c: Record<string, number> = { all: submissions.length, paid: 0, pending: 0 };
+    for (const s of submissions) {
+      if (s.payment_status === "paid") c.paid += 1;
+      else if (s.payment_status === "pending") c.pending += 1;
+    }
+    return c;
+  }, [submissions]);
+
   const filtered = submissions.filter((s) => {
     if (filter !== "all" && s.service !== filter) return false;
+    if (payFilter !== "all" && s.payment_status !== payFilter) return false;
     const q = query.toLowerCase();
     return (
       (s.name ?? "").toLowerCase().includes(q) ||
@@ -105,6 +119,15 @@ export function OnboardingTable({
     });
   }
 
+  function handleFilingStage(id: string, stage: number) {
+    setDetail((prev) => (prev && prev.id === id ? { ...prev, filing_stage: stage } : prev));
+    startTransition(async () => {
+      const res = await updateFilingStage(id, stage);
+      if (res.error) toast.error(res.error);
+      else toast.success("Filing stage updated — the client's dashboard will reflect it.");
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -126,14 +149,35 @@ export function OnboardingTable({
           ))}
         </div>
 
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search submissions…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="pl-9"
-          />
+        <div className="flex items-center gap-3">
+          {/* Payment filter */}
+          <div className="flex items-center gap-1">
+            <span className="mr-1 text-xs font-medium text-muted-foreground">Payment</span>
+            {(["all", "paid", "pending"] as const).map((k) => (
+              <button
+                key={k}
+                onClick={() => setPayFilter(k)}
+                className={`rounded-lg px-2.5 py-1.5 text-sm font-medium capitalize transition-colors ${
+                  payFilter === k
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {k}
+                <span className="ml-1.5 opacity-70">{payCounts[k] ?? 0}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full max-w-xs">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search submissions…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
         </div>
       </div>
 
@@ -145,6 +189,7 @@ export function OnboardingTable({
               <TableHead>Service</TableHead>
               <TableHead className="hidden lg:table-cell">Company</TableHead>
               <TableHead className="hidden sm:table-cell">Plan</TableHead>
+              <TableHead>Payment</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="hidden sm:table-cell">Submitted</TableHead>
               <TableHead className="w-10" />
@@ -153,7 +198,7 @@ export function OnboardingTable({
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
                   No onboarding submissions yet.
                 </TableCell>
               </TableRow>
@@ -174,6 +219,20 @@ export function OnboardingTable({
                   </TableCell>
                   <TableCell className="hidden sm:table-cell text-sm">
                     {s.plan ? titleCase(s.plan) : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {s.service === "company-formation" && s.payment_status ? (
+                      <div className="flex items-center gap-2">
+                        <PaymentStatusBadge status={s.payment_status} />
+                        {typeof s.amount_total === "number" ? (
+                          <span className="text-xs text-muted-foreground">
+                            {formatCurrency(s.amount_total)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Select
@@ -238,6 +297,69 @@ export function OnboardingTable({
               {detail ? ` · ${formatDate(detail.created_at)}` : ""}
             </DialogDescription>
           </DialogHeader>
+          {detail && detail.service === "company-formation" && detail.payment_status && (
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <PaymentStatusBadge status={detail.payment_status} />
+                {typeof detail.amount_total === "number" ? (
+                  <span className="text-sm font-semibold">
+                    {formatCurrency(detail.amount_total)}
+                  </span>
+                ) : null}
+              </div>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+                {detail.paid_at ? (
+                  <>
+                    <dt className="text-muted-foreground">Paid on</dt>
+                    <dd className="font-medium">{formatDateTime(detail.paid_at)}</dd>
+                  </>
+                ) : null}
+                {detail.order_ref ? (
+                  <>
+                    <dt className="text-muted-foreground">Order ref</dt>
+                    <dd className="truncate font-mono">{detail.order_ref}</dd>
+                  </>
+                ) : null}
+                {detail.stripe_subscription_id ? (
+                  <>
+                    <dt className="text-muted-foreground">Subscription</dt>
+                    <dd className="truncate font-mono">{detail.stripe_subscription_id}</dd>
+                  </>
+                ) : null}
+                {detail.stripe_session_id ? (
+                  <>
+                    <dt className="text-muted-foreground">Session</dt>
+                    <dd className="truncate font-mono">{detail.stripe_session_id}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </div>
+          )}
+          {detail && detail.service === "company-formation" && (
+            <div className="rounded-lg border p-4">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="text-sm font-medium">Filing progress</span>
+                <span className="text-xs text-muted-foreground">
+                  Shown live on the client&apos;s dashboard
+                </span>
+              </div>
+              <Select
+                value={String(detail.filing_stage ?? 0)}
+                onValueChange={(v) => handleFilingStage(detail.id, Number(v))}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FILING_STAGES.map((label, i) => (
+                    <SelectItem key={i} value={String(i)}>
+                      {i}. {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {detail && (
             <dl className="divide-y rounded-lg border">
               {Object.entries(detail.details).length === 0 ? (

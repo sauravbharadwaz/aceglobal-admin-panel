@@ -106,6 +106,8 @@ export type OnboardingService =
 
 export type OnboardingStatus = "new" | "reviewing" | "quoted" | "won" | "lost";
 
+export type PaymentStatus = "pending" | "paid";
+
 export interface OnboardingSubmission {
   id: string;
   created_at: string;
@@ -116,7 +118,27 @@ export interface OnboardingSubmission {
   plan: string | null;
   status: OnboardingStatus;
   details: Record<string, unknown>;
+  // Payment tracking (company-formation orders; NULL for services without payment).
+  order_ref?: string | null;
+  payment_status?: PaymentStatus | null;
+  amount_total?: number | null;
+  stripe_session_id?: string | null;
+  stripe_subscription_id?: string | null;
+  paid_at?: string | null;
+  // Auth ownership + live filing progress (0..5) shown on the client dashboard.
+  user_id?: string | null;
+  filing_stage?: number | null;
 }
+
+// Formation filing milestones the admin advances (index = filing_stage value).
+export const FILING_STAGES: string[] = [
+  "Not started",
+  "Name reserved",
+  "State filing submitted",
+  "EIN obtained",
+  "Registered agent set up",
+  "Complete",
+];
 
 export interface Lead {
   id: string;
@@ -174,6 +196,8 @@ export const ONBOARDING_SERVICES: OnboardingService[] = [
   "corporate-tax",
   "company-formation",
 ];
+
+export const PAYMENT_STATUSES: PaymentStatus[] = ["pending", "paid"];
 
 export const ONBOARDING_SERVICE_LABELS: Record<OnboardingService, string> = {
   bookkeeping: "Bookkeeping",
