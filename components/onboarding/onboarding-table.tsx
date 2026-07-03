@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Eye, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { Download, Eye, MoreHorizontal, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteOnboardingSubmission,
@@ -117,6 +117,15 @@ export function OnboardingTable({
       if (res.error) toast.error(res.error);
       else toast.success("Submission deleted");
     });
+  }
+
+  async function handleDownloadPdf(row: OnboardingSubmission) {
+    try {
+      const mod = await import("@/lib/application-pdf");   // lazy-load jsPDF only on click
+      mod.downloadApplicationPDF(row);
+    } catch {
+      toast.error("Could not generate the application PDF.");
+    }
   }
 
   function handleFilingStage(id: string, stage: number) {
@@ -297,6 +306,17 @@ export function OnboardingTable({
               {detail ? ` · ${formatDate(detail.created_at)}` : ""}
             </DialogDescription>
           </DialogHeader>
+          {detail && detail.service === "company-formation" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              onClick={() => handleDownloadPdf(detail)}
+            >
+              <Download className="size-4" />
+              Download application (PDF)
+            </Button>
+          )}
           {detail && detail.service === "company-formation" && detail.payment_status && (
             <div className="rounded-lg border bg-muted/30 p-4">
               <div className="mb-3 flex items-center gap-2">
