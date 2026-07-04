@@ -124,8 +124,13 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Guarantee no horizontal page scroll on mobile. `clip` (not `hidden`)
+       so it never turns the sticky top nav into a broken scroll container. */
+    overflow-x: clip;
+    max-width: 100%;
   }
   html {
     @apply font-sans;
+    overflow-x: clip;
   }
 }

@@ -176,9 +176,9 @@ export function OnboardingTable({
           ))}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
           {/* Payment filter */}
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             <span className="mr-1 text-xs font-medium text-muted-foreground">Payment</span>
             {(["all", "paid", "pending"] as const).map((k) => (
               <button
@@ -196,7 +196,7 @@ export function OnboardingTable({
             ))}
           </div>
 
-          <div className="relative w-full max-w-xs">
+          <div className="relative w-full sm:max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search submissions…"
