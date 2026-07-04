@@ -35,6 +35,24 @@ export async function updateFilingStage(
   return { error: null };
 }
 
+export async function sendNotification(
+  userId: string | null | undefined,
+  title: string,
+  body: string,
+): Promise<Result> {
+  if (!userId) return { error: "This submission isn't linked to a signed-in user yet, so there's nobody to notify." };
+  const t = (title || "").trim();
+  if (!t) return { error: "A title is required." };
+  const supabase = await createClient();
+  const { error } = await supabase.from("notifications").insert({
+    user_id: userId,
+    title: t.slice(0, 200),
+    body: (body || "").trim().slice(0, 2000) || null,
+  });
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
 export async function deleteOnboardingSubmission(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase

@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Download, Eye, MoreHorizontal, Search, Trash2 } from "lucide-react";
+import { BellRing, Download, Eye, MoreHorizontal, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteOnboardingSubmission,
+  sendNotification,
   updateFilingStage,
   updateOnboardingStatus,
 } from "@/app/(admin)/onboarding/actions";
@@ -75,6 +76,8 @@ export function OnboardingTable({
   const [payFilter, setPayFilter] = useState<"all" | PaymentStatus>("all");
   const [query, setQuery] = useState("");
   const [detail, setDetail] = useState<OnboardingSubmission | null>(null);
+  const [notifTitle, setNotifTitle] = useState("");
+  const [notifBody, setNotifBody] = useState("");
   const [isPending, startTransition] = useTransition();
 
   const counts = useMemo(() => {
@@ -116,6 +119,21 @@ export function OnboardingTable({
       const res = await deleteOnboardingSubmission(id);
       if (res.error) toast.error(res.error);
       else toast.success("Submission deleted");
+    });
+  }
+
+  function handleSendNotification() {
+    if (!detail) return;
+    const uid = detail.user_id;
+    startTransition(async () => {
+      const res = await sendNotification(uid, notifTitle, notifBody);
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Notification sent — it'll appear on the client's dashboard.");
+      setNotifTitle("");
+      setNotifBody("");
     });
   }
 
@@ -273,7 +291,13 @@ export function OnboardingTable({
                         <MoreHorizontal className="size-4" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => setDetail(s)}>
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setDetail(s);
+                            setNotifTitle("");
+                            setNotifBody("");
+                          }}
+                        >
                           <Eye className="size-4" />
                           View details
                         </DropdownMenuItem>
@@ -378,6 +402,44 @@ export function OnboardingTable({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+          {detail && (
+            <div className="rounded-lg border p-4">
+              <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                <BellRing className="size-4 text-muted-foreground" />
+                Send a notification
+              </div>
+              {detail.user_id ? (
+                <div className="space-y-2">
+                  <Input
+                    placeholder="Title (e.g. Your EIN is ready)"
+                    value={notifTitle}
+                    onChange={(e) => setNotifTitle(e.target.value)}
+                  />
+                  <textarea
+                    placeholder="Message (optional)"
+                    value={notifBody}
+                    onChange={(e) => setNotifBody(e.target.value)}
+                    rows={3}
+                    className="w-full resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={handleSendNotification}
+                      disabled={isPending || !notifTitle.trim()}
+                    >
+                      <Send className="size-4" />
+                      Send to client
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  This submission isn&apos;t linked to a signed-in account yet, so there&apos;s nobody to notify.
+                </p>
+              )}
             </div>
           )}
           {detail && (
