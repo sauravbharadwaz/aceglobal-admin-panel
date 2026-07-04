@@ -13,6 +13,7 @@ import {
   BarChart3,
   Wallet,
   Settings,
+  Users2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,5 +36,6 @@ export const ADMIN_ITEMS: NavItem[] = [
   { href: "/tat-metrics", label: "TAT Metrics", icon: Timer },
   { href: "/insights", label: "Insights", icon: BarChart3 },
   { href: "/payouts", label: "Payouts", icon: Wallet },
+  { href: "/team", label: "Team", icon: Users2 },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
