@@ -7,6 +7,7 @@ import type {
   OnboardingStatus,
   PaymentStatus,
   PayoutStatus,
+  PortalStatus,
 } from "@/lib/types";
 
 export function formatCurrency(value: number): string {
@@ -93,6 +94,18 @@ export const PAYOUT_STATUS_STYLES: Record<PayoutStatus, string> = {
 export const PAYMENT_STATUS_STYLES: Record<PaymentStatus, string> = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
+export const PORTAL_STATUS_STYLES: Record<PortalStatus, string> = {
+  none: "bg-neutral-100 text-neutral-500 border-neutral-200",
+  invited: "bg-amber-50 text-amber-700 border-amber-200",
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
+export const PORTAL_STATUS_LABELS: Record<PortalStatus, string> = {
+  none: "No access",
+  invited: "Invited",
+  active: "Active",
 };
 
 /** Formats an ISO timestamp as e.g. "Fri, Jul 3, 2:30 PM". */

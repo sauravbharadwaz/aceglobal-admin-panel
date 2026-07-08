@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type {
   Client,
+  ClientEngagement,
   Expert,
   Invoice,
   Lead,
@@ -67,6 +68,33 @@ export function getLeads(): Promise<Lead[]> {
 
 export function getClients(): Promise<Client[]> {
   return fetchAll<Client>("clients", "created_at", { ascending: false });
+}
+
+/**
+ * Map of client_id → the client's dashboard engagement (service / filing stage /
+ * payment), used to prefill the client editor and show portal state. Returns an
+ * empty map if the columns/table aren't migrated yet.
+ */
+export async function getClientEngagements(): Promise<Record<string, ClientEngagement>> {
+  if (!isSupabaseConfigured) return {};
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("onboarding_submissions")
+    .select("id, client_id, service, filing_stage, payment_status")
+    .not("client_id", "is", null)
+    .order("created_at", { ascending: true });
+  if (error) {
+    if (isMissingTable(error)) return {};
+    // A missing client_id column also degrades gracefully.
+    if (/client_id/i.test(error.message ?? "")) return {};
+    throw new Error(error.message);
+  }
+  const map: Record<string, ClientEngagement> = {};
+  for (const row of (data as ClientEngagement[]) ?? []) {
+    // earliest row per client is the primary engagement (ascending order above)
+    if (row.client_id && !map[row.client_id]) map[row.client_id] = row;
+  }
+  return map;
 }
 
 export function getReviews(): Promise<Review[]> {

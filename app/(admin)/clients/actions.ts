@@ -2,9 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { ClientStatus } from "@/lib/types";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { currentUserIsStaff } from "@/lib/staff-guard";
+import { ONBOARDING_SERVICES, type ClientStatus, type OnboardingService } from "@/lib/types";
 
 type Result = { error: string | null };
+
+/** Where the client dashboard lives. Their invite email links here. */
+const APP_URL = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
+const SETUP_REDIRECT = `${APP_URL}/?setup=1`;
 
 function parseForm(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
@@ -20,13 +26,83 @@ function parseForm(formData: FormData) {
   };
 }
 
+/** The dashboard-facing engagement the client sees. `service` drives which
+ *  dashboard view (persona) they land on; blank means "don't touch the
+ *  engagement" (e.g. a client we don't intend to give portal access yet). */
+function parseEngagement(formData: FormData) {
+  const raw = String(formData.get("service") ?? "").trim();
+  const service = (ONBOARDING_SERVICES as string[]).includes(raw)
+    ? (raw as OnboardingService)
+    : null;
+  const filing_stage = Math.max(0, Math.min(5, Math.round(Number(formData.get("filing_stage") ?? 0) || 0)));
+  const payment_status = String(formData.get("payment_status") ?? "pending") === "paid" ? "paid" : "pending";
+  return { service, filing_stage, payment_status };
+}
+
+type ClientValues = ReturnType<typeof parseForm>;
+type EngagementValues = ReturnType<typeof parseEngagement>;
+
+/**
+ * Keep the client's dashboard engagement (an onboarding_submissions row) in sync
+ * with the admin client record. One "portal engagement" per client, linked by
+ * client_id. Preserves an already-linked user_id so re-editing a client never
+ * detaches their login. No-op when no service is selected.
+ */
+async function syncEngagement(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clientId: string,
+  client: ClientValues,
+  engagement: EngagementValues,
+): Promise<string | null> {
+  if (!engagement.service) return null;
+
+  const { data: existing } = await supabase
+    .from("onboarding_submissions")
+    .select("id")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  const payload = {
+    service: engagement.service,
+    name: client.name,
+    email: client.email,
+    company: client.company,
+    plan: client.plan,
+    status: "won" as const,
+    filing_stage: engagement.filing_stage,
+    payment_status: engagement.payment_status,
+    client_id: clientId,
+  };
+
+  if (existing?.id) {
+    const { error } = await supabase
+      .from("onboarding_submissions")
+      .update(payload)
+      .eq("id", existing.id);
+    return error ? error.message : null;
+  }
+
+  const { error } = await supabase.from("onboarding_submissions").insert(payload);
+  return error ? error.message : null;
+}
+
 export async function createClientRecord(formData: FormData): Promise<Result> {
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
+  const engagement = parseEngagement(formData);
 
   const supabase = await createClient();
-  const { error } = await supabase.from("clients").insert(values);
+  const { data, error } = await supabase
+    .from("clients")
+    .insert(values)
+    .select("id")
+    .single();
   if (error) return { error: error.message };
+
+  const engErr = await syncEngagement(supabase, data.id, values, engagement);
+  if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
@@ -39,10 +115,14 @@ export async function updateClientRecord(
 ): Promise<Result> {
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
+  const engagement = parseEngagement(formData);
 
   const supabase = await createClient();
   const { error } = await supabase.from("clients").update(values).eq("id", id);
   if (error) return { error: error.message };
+
+  const engErr = await syncEngagement(supabase, id, values, engagement);
+  if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
@@ -56,6 +136,120 @@ export async function deleteClientRecord(id: string): Promise<Result> {
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
+  return { error: null };
+}
+
+/** Find an existing auth user by email (paged; there is no getUserByEmail). */
+async function findUserIdByEmail(
+  admin: ReturnType<typeof createAdminClient>,
+  email: string,
+): Promise<string | null> {
+  const target = email.toLowerCase();
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (error || !data?.users?.length) return null;
+    const hit = data.users.find((u) => (u.email ?? "").toLowerCase() === target);
+    if (hit) return hit.id;
+    if (data.users.length < 200) return null; // last page
+  }
+  return null;
+}
+
+/**
+ * Invite a client to their dashboard. Creates (or reuses) their login, emails a
+ * set-password link that returns them to the app, and links the login to this
+ * client + their engagement so RLS shows them exactly their own data.
+ *
+ * Idempotent: safe to click again as "Resend" — an already-registered client
+ * gets a fresh set-password email instead of erroring.
+ */
+export async function inviteClientToPortal(clientId: string): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Portal invites are not configured." };
+  }
+
+  const { data: client, error: cErr } = await admin
+    .from("clients")
+    .select("id, email, user_id")
+    .eq("id", clientId)
+    .single();
+  if (cErr || !client) return { error: "Client not found." };
+
+  const email = (client.email ?? "").trim().toLowerCase();
+  if (!email) return { error: "Add an email to this client before inviting them." };
+
+  let userId: string | null = client.user_id ?? null;
+  // Whether we still owe them a set-password email. A brand-new invite emails
+  // itself; every other path (existing account, or resend) needs an explicit
+  // recovery email.
+  let needSetupEmail = !!client.user_id; // resend on an already-linked client
+
+  if (!userId) {
+    // First try a clean invite; if the email already has a login, fall back to a
+    // set-password (recovery) email so existing accounts can still get access.
+    const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: SETUP_REDIRECT,
+    });
+    if (error) {
+      userId = await findUserIdByEmail(admin, email);
+      if (!userId) return { error: error.message };
+      needSetupEmail = true; // reused an existing account → it never got the invite mail
+    } else {
+      userId = data.user?.id ?? null; // fresh invite email already on its way
+    }
+  }
+
+  if (!userId) return { error: "Could not create the client login." };
+
+  // resetPasswordForEmail is delivered by Supabase's mailer and lands on the
+  // same ?setup=1 screen as a fresh invite.
+  if (needSetupEmail) {
+    const supabase = await createClient();
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: SETUP_REDIRECT });
+  }
+
+  const { error: linkErr } = await admin
+    .from("clients")
+    .update({ user_id: userId, portal_status: "invited" })
+    .eq("id", clientId);
+  if (linkErr) return { error: linkErr.message };
+
+  // Attach the login to every engagement of this client so the dashboard's
+  // owner-scoped RLS (auth.uid() = user_id) returns their data.
+  await admin
+    .from("onboarding_submissions")
+    .update({ user_id: userId })
+    .eq("client_id", clientId);
+
+  revalidatePath("/clients");
+  return { error: null };
+}
+
+/** Revoke a client's dashboard access: unlink the login from the client and
+ *  their engagements (does not delete the auth user or any data). */
+export async function revokeClientPortal(clientId: string): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Portal invites are not configured." };
+  }
+
+  await admin.from("onboarding_submissions").update({ user_id: null }).eq("client_id", clientId);
+  const { error } = await admin
+    .from("clients")
+    .update({ user_id: null, portal_status: "none" })
+    .eq("id", clientId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/clients");
   return { error: null };
 }
 

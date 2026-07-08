@@ -154,6 +154,10 @@ export interface Lead {
   notes: string | null;
 }
 
+export type PortalStatus = "none" | "invited" | "active";
+
+export const PORTAL_STATUSES: PortalStatus[] = ["none", "invited", "active"];
+
 export interface Client {
   id: string;
   created_at: string;
@@ -166,6 +170,18 @@ export interface Client {
   mrr: number;
   owner: string | null;
   notes: string | null;
+  // Client portal (dashboard access)
+  user_id?: string | null;
+  portal_status?: PortalStatus | null;
+}
+
+/** The dashboard engagement linked to a client (one onboarding_submissions row). */
+export interface ClientEngagement {
+  id: string;
+  client_id: string;
+  service: OnboardingService;
+  filing_stage: number | null;
+  payment_status: PaymentStatus | null;
 }
 
 export const LEAD_STATUSES: LeadStatus[] = [

@@ -1,15 +1,42 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import {
+  KeyRound,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Search,
+  Send,
+  ShieldOff,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   createClientRecord,
   deleteClientRecord,
+  inviteClientToPortal,
+  revokeClientPortal,
   updateClientRecord,
 } from "@/app/(admin)/clients/actions";
-import { CLIENT_STATUSES, type Client } from "@/lib/types";
-import { formatCurrency, formatDate, titleCase } from "@/lib/format";
+import {
+  CLIENT_STATUSES,
+  FILING_STAGES,
+  ONBOARDING_SERVICES,
+  ONBOARDING_SERVICE_LABELS,
+  type Client,
+  type ClientEngagement,
+  type PortalStatus,
+} from "@/lib/types";
+import { Badge } from "@/components/ui/badge";
+import {
+  PORTAL_STATUS_LABELS,
+  PORTAL_STATUS_STYLES,
+  formatCurrency,
+  formatDate,
+  titleCase,
+} from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { ClientStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,6 +60,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -45,8 +73,23 @@ import {
 } from "@/components/ui/dialog";
 
 const PLANS = ["starter", "growth", "enterprise"];
+const NO_SERVICE = "none";
 
-export function ClientsTable({ clients }: { clients: Client[] }) {
+function PortalBadge({ status }: { status: PortalStatus }) {
+  return (
+    <Badge variant="outline" className={cn("font-medium", PORTAL_STATUS_STYLES[status])}>
+      {PORTAL_STATUS_LABELS[status]}
+    </Badge>
+  );
+}
+
+export function ClientsTable({
+  clients,
+  engagements,
+}: {
+  clients: Client[];
+  engagements: Record<string, ClientEngagement>;
+}) {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
@@ -94,6 +137,27 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
     });
   }
 
+  function handleInvite(client: Client, resend: boolean) {
+    startTransition(async () => {
+      const res = await inviteClientToPortal(client.id);
+      if (res.error) toast.error(res.error);
+      else
+        toast.success(
+          resend
+            ? `Set-password email re-sent to ${client.email}`
+            : `Invite sent to ${client.email}`,
+        );
+    });
+  }
+
+  function handleRevoke(client: Client) {
+    startTransition(async () => {
+      const res = await revokeClientPortal(client.id);
+      if (res.error) toast.error(res.error);
+      else toast.success(`Dashboard access revoked for ${client.name}`);
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -121,7 +185,7 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
               <TableHead>Status</TableHead>
               <TableHead className="hidden sm:table-cell">Plan</TableHead>
               <TableHead className="text-right">MRR</TableHead>
-              <TableHead className="hidden lg:table-cell">Owner</TableHead>
+              <TableHead className="hidden md:table-cell">Dashboard</TableHead>
               <TableHead className="hidden xl:table-cell">Since</TableHead>
               <TableHead className="w-10" />
             </TableRow>
@@ -134,57 +198,82 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
                 </TableCell>
               </TableRow>
             ) : (
-              filtered.map((client) => (
-                <TableRow key={client.id}>
-                  <TableCell>
-                    <div className="font-medium">{client.name}</div>
-                    {client.company && client.company !== client.name && (
-                      <div className="text-xs text-muted-foreground">{client.company}</div>
-                    )}
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
-                    <div>{client.email ?? "—"}</div>
-                    <div>{client.phone ?? ""}</div>
-                  </TableCell>
-                  <TableCell>
-                    <ClientStatusBadge status={client.status} />
-                  </TableCell>
-                  <TableCell className="hidden sm:table-cell text-sm">
-                    {client.plan ? titleCase(client.plan) : "—"}
-                  </TableCell>
-                  <TableCell className="text-right font-medium tabular-nums">
-                    {formatCurrency(client.mrr)}
-                  </TableCell>
-                  <TableCell className="hidden lg:table-cell text-sm">
-                    {client.owner ?? "—"}
-                  </TableCell>
-                  <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
-                    {formatDate(client.created_at)}
-                  </TableCell>
-                  <TableCell>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger
-                        render={<Button variant="ghost" size="icon" className="size-8" />}
-                      >
-                        <MoreHorizontal className="size-4" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openEdit(client)}>
-                          <Pencil className="size-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => handleDelete(client.id, client.name)}
+              filtered.map((client) => {
+                const portal = (client.portal_status ?? "none") as PortalStatus;
+                const invited = portal !== "none";
+                return (
+                  <TableRow key={client.id}>
+                    <TableCell>
+                      <div className="font-medium">{client.name}</div>
+                      {client.company && client.company !== client.name && (
+                        <div className="text-xs text-muted-foreground">{client.company}</div>
+                      )}
+                    </TableCell>
+                    <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                      <div>{client.email ?? "—"}</div>
+                      <div>{client.phone ?? ""}</div>
+                    </TableCell>
+                    <TableCell>
+                      <ClientStatusBadge status={client.status} />
+                    </TableCell>
+                    <TableCell className="hidden sm:table-cell text-sm">
+                      {client.plan ? titleCase(client.plan) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right font-medium tabular-nums">
+                      {formatCurrency(client.mrr)}
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell">
+                      <PortalBadge status={portal} />
+                    </TableCell>
+                    <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
+                      {formatDate(client.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger
+                          render={<Button variant="ghost" size="icon" className="size-8" />}
                         >
-                          <Trash2 className="size-4" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
+                          <MoreHorizontal className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => openEdit(client)}>
+                            <Pencil className="size-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          {!invited ? (
+                            <DropdownMenuItem
+                              onClick={() => handleInvite(client, false)}
+                              disabled={!client.email}
+                            >
+                              <Send className="size-4" />
+                              Invite to dashboard
+                            </DropdownMenuItem>
+                          ) : (
+                            <>
+                              <DropdownMenuItem onClick={() => handleInvite(client, true)}>
+                                <KeyRound className="size-4" />
+                                Resend set-password email
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => handleRevoke(client)}>
+                                <ShieldOff className="size-4" />
+                                Revoke access
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => handleDelete(client.id, client.name)}
+                          >
+                            <Trash2 className="size-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -198,8 +287,8 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
               <DialogTitle>{editing ? "Edit client" : "Add client"}</DialogTitle>
               <DialogDescription>
                 {editing
-                  ? "Update this client's details."
-                  : "Create a new client record."}
+                  ? "Update this client's details and what they see on their dashboard."
+                  : "Create a client, then invite them to their dashboard."}
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
@@ -268,6 +357,75 @@ export function ClientsTable({ clients }: { clients: Client[] }) {
                 <div className="grid gap-2">
                   <Label htmlFor="owner">Account manager</Label>
                   <Input id="owner" name="owner" defaultValue={editing?.owner ?? ""} />
+                </div>
+              </div>
+
+              {/* ── Client dashboard (portal) ─────────────────────────────── */}
+              <div className="mt-1 rounded-lg border bg-muted/30 p-4">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold">Client dashboard</h4>
+                  <p className="text-xs text-muted-foreground">
+                    What this client sees when they log in. Pick a service to enable
+                    their dashboard, then use <span className="font-medium">Invite to dashboard</span> to email them a login.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="grid gap-2">
+                    <Label htmlFor="service">Service</Label>
+                    <Select
+                      name="service"
+                      defaultValue={editing ? engagements[editing.id]?.service ?? NO_SERVICE : NO_SERVICE}
+                    >
+                      <SelectTrigger id="service">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_SERVICE}>— No dashboard —</SelectItem>
+                        {ONBOARDING_SERVICES.map((s) => (
+                          <SelectItem key={s} value={s}>
+                            {ONBOARDING_SERVICE_LABELS[s]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="payment_status">Payment</Label>
+                    <Select
+                      name="payment_status"
+                      defaultValue={
+                        editing ? engagements[editing.id]?.payment_status ?? "pending" : "pending"
+                      }
+                    >
+                      <SelectTrigger id="payment_status">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="paid">Paid</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  <Label htmlFor="filing_stage">Formation progress (company formation only)</Label>
+                  <Select
+                    name="filing_stage"
+                    defaultValue={String(
+                      editing ? engagements[editing.id]?.filing_stage ?? 0 : 0,
+                    )}
+                  >
+                    <SelectTrigger id="filing_stage">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FILING_STAGES.map((label, i) => (
+                        <SelectItem key={i} value={String(i)}>
+                          {i}. {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
             </div>
