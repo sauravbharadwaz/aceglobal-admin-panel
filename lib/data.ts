@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type {
   Client,
+  ClientDocument,
   ClientEngagement,
   Expert,
   Invoice,
@@ -137,6 +138,52 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     }
   }
   for (const k of Object.keys(map)) delete map[k]._linked;
+  return map;
+}
+
+/**
+ * Map of client_id → the standalone documents a client uploaded from the
+ * dashboard "Documents" section (the `client_documents` table), separate from
+ * documents attached to a service request (which live in
+ * onboarding_submissions.details.documents and come through getClientEngagements).
+ * Resolves each row to a client via client_id, falling back to user_id → client
+ * (self-uploaded rows leave client_id NULL). Returns {} if the table isn't
+ * migrated yet, so a missing migration degrades gracefully.
+ */
+export async function getClientDocuments(): Promise<Record<string, ClientDocument[]>> {
+  if (!isSupabaseConfigured) return {};
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("client_documents")
+    .select("client_id, user_id, name, path, size")
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (isMissingTable(error)) return {};
+    throw new Error(error.message);
+  }
+
+  const clients = await getClients();
+  const userToClient: Record<string, string> = {};
+  for (const c of clients) if (c.user_id) userToClient[c.user_id] = c.id;
+
+  type Row = {
+    client_id?: string | null;
+    user_id?: string | null;
+    name?: string | null;
+    path?: string | null;
+    size?: number | null;
+  };
+  const map: Record<string, ClientDocument[]> = {};
+  for (const row of (data as Row[]) ?? []) {
+    if (!row.path) continue;
+    const clientId = row.client_id ?? (row.user_id ? userToClient[row.user_id] : null);
+    if (!clientId) continue;
+    (map[clientId] ??= []).push({
+      name: row.name ?? "document",
+      path: row.path,
+      size: row.size ?? null,
+    });
+  }
   return map;
 }
 

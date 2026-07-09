@@ -28,6 +28,7 @@ import {
   ONBOARDING_SERVICE_LABELS,
   stageLabelsForService,
   type Client,
+  type ClientDocument,
   type ClientEngagement,
   type PortalStatus,
 } from "@/lib/types";
@@ -89,9 +90,12 @@ function PortalBadge({ status }: { status: PortalStatus }) {
 export function ClientsTable({
   clients,
   engagements,
+  documents = {},
 }: {
   clients: Client[];
   engagements: Record<string, ClientEngagement>;
+  /** Standalone documents (dashboard "Documents" section) keyed by client id. */
+  documents?: Record<string, ClientDocument[]>;
 }) {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -445,26 +449,36 @@ export function ClientsTable({
                     );
                   })()}
                 </div>
-                {editing && (engagements[editing.id]?.documents?.length ?? 0) > 0 && (
-                  <div className="mt-3 grid gap-2">
-                    <Label>Submitted documents</Label>
-                    <div className="grid gap-2">
-                      {engagements[editing.id]!.documents.map((doc) => (
-                        <button
-                          key={doc.path}
-                          type="button"
-                          onClick={() => handleDownloadDoc(doc.path)}
-                          disabled={isPending}
-                          className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60"
-                        >
-                          <FileText className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="flex-1 truncate">{doc.name}</span>
-                          <Download className="size-4 shrink-0 text-muted-foreground" />
-                        </button>
-                      ))}
+                {editing && (() => {
+                  // Documents attached to a service request (onboarding details)
+                  // plus standalone dashboard "Documents" uploads, deduped by path.
+                  const seen = new Set<string>();
+                  const docs = [
+                    ...(engagements[editing.id]?.documents ?? []),
+                    ...(documents[editing.id] ?? []),
+                  ].filter((d) => (seen.has(d.path) ? false : (seen.add(d.path), true)));
+                  if (docs.length === 0) return null;
+                  return (
+                    <div className="mt-3 grid gap-2">
+                      <Label>Documents</Label>
+                      <div className="grid gap-2">
+                        {docs.map((doc) => (
+                          <button
+                            key={doc.path}
+                            type="button"
+                            onClick={() => handleDownloadDoc(doc.path)}
+                            disabled={isPending}
+                            className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60"
+                          >
+                            <FileText className="size-4 shrink-0 text-muted-foreground" />
+                            <span className="flex-1 truncate">{doc.name}</span>
+                            <Download className="size-4 shrink-0 text-muted-foreground" />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
                 <div className="mt-3 grid gap-2">
                   <Label htmlFor="password">
                     Login password {editing?.user_id ? "(type a new one to reset)" : "(optional)"}
