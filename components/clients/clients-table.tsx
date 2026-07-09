@@ -427,6 +427,25 @@ export function ClientsTable({
                     </SelectContent>
                   </Select>
                 </div>
+                <div className="mt-3 grid gap-2">
+                  <Label htmlFor="password">
+                    Login password {editing?.user_id ? "(type a new one to reset)" : "(optional)"}
+                  </Label>
+                  <Input
+                    id="password"
+                    name="password"
+                    type="text"
+                    autoComplete="off"
+                    placeholder={
+                      editing?.user_id ? "Leave blank to keep current" : "Min. 6 characters"
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Sets a password so they can sign in at{" "}
+                    <span className="font-medium">app.aceglobal.ai/?mode=login</span>{" "}
+                    with their email — no invite email needed. Share it with them directly.
+                  </p>
+                </div>
               </div>
             </div>
             <DialogFooter>

@@ -88,10 +88,71 @@ async function syncEngagement(
   return error ? error.message : null;
 }
 
+/**
+ * Give a client a login with an admin-set password (no email needed). Creates a
+ * confirmed auth user (or updates the password of an existing one), links it to
+ * the client + their engagements, and marks them active. Staff-guarded. No-op if
+ * no password was entered.
+ */
+async function provisionClientLogin(
+  clientId: string,
+  email: string | null,
+  password: string,
+): Promise<string | null> {
+  if (!password) return null; // nothing to set
+  if (password.length < 6) return "The login password must be at least 6 characters.";
+  if (!email) return "Add an email to this client before setting a login password.";
+  if (!(await currentUserIsStaff())) return "Staff access required.";
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return e instanceof Error ? e.message : "Logins are not configured.";
+  }
+
+  const { data: client } = await admin
+    .from("clients")
+    .select("user_id")
+    .eq("id", clientId)
+    .single();
+  let userId: string | null = client?.user_id ?? null;
+  if (!userId) userId = await findUserIdByEmail(admin, email.toLowerCase());
+
+  if (userId) {
+    // Existing login → just (re)set its password.
+    const { error } = await admin.auth.admin.updateUserById(userId, { password });
+    if (error) return error.message;
+  } else {
+    // Fresh, pre-confirmed login so they can sign in immediately.
+    const { data, error } = await admin.auth.admin.createUser({
+      email: email.toLowerCase(),
+      password,
+      email_confirm: true,
+    });
+    if (error) return error.message;
+    userId = data.user?.id ?? null;
+  }
+  if (!userId) return "Could not create the client login.";
+
+  const { error: linkErr } = await admin
+    .from("clients")
+    .update({ user_id: userId, portal_status: "active" })
+    .eq("id", clientId);
+  if (linkErr) return linkErr.message;
+
+  await admin
+    .from("onboarding_submissions")
+    .update({ user_id: userId })
+    .eq("client_id", clientId);
+  return null;
+}
+
 export async function createClientRecord(formData: FormData): Promise<Result> {
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
   const engagement = parseEngagement(formData);
+  const password = String(formData.get("password") ?? "").trim();
 
   const supabase = await createClient();
   const { data, error } = await supabase
@@ -103,6 +164,9 @@ export async function createClientRecord(formData: FormData): Promise<Result> {
 
   const engErr = await syncEngagement(supabase, data.id, values, engagement);
   if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
+
+  const pwErr = await provisionClientLogin(data.id, values.email, password);
+  if (pwErr) return { error: `Client saved, but the login failed: ${pwErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
@@ -116,6 +180,7 @@ export async function updateClientRecord(
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
   const engagement = parseEngagement(formData);
+  const password = String(formData.get("password") ?? "").trim();
 
   const supabase = await createClient();
   const { error } = await supabase.from("clients").update(values).eq("id", id);
@@ -123,6 +188,9 @@ export async function updateClientRecord(
 
   const engErr = await syncEngagement(supabase, id, values, engagement);
   if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
+
+  const pwErr = await provisionClientLogin(id, values.email, password);
+  if (pwErr) return { error: `Client saved, but the login failed: ${pwErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
