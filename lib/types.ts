@@ -102,7 +102,8 @@ export const PAYOUT_STATUSES: PayoutStatus[] = ["pending", "paid"];
 export type OnboardingService =
   | "bookkeeping"
   | "corporate-tax"
-  | "company-formation";
+  | "company-formation"
+  | "tax-account";
 
 export type OnboardingStatus = "new" | "reviewing" | "quoted" | "won" | "lost";
 
@@ -139,6 +140,22 @@ export const FILING_STAGES: string[] = [
   "Registered agent set up",
   "Complete",
 ];
+
+// Register-New-Tax-Account milestones (reuses filing_stage; index = value 0..4).
+export const TAX_ACCOUNT_STAGES: string[] = [
+  "Requested",
+  "Received Documents",
+  "Submitted with Agency",
+  "Waiting Approval",
+  "Approved",
+];
+
+/** Progress-stage labels for a given service (blank for services without a tracker). */
+export function stageLabelsForService(service: string | null | undefined): string[] {
+  if (service === "company-formation") return FILING_STAGES;
+  if (service === "tax-account") return TAX_ACCOUNT_STAGES;
+  return [];
+}
 
 export interface Lead {
   id: string;
@@ -211,6 +228,7 @@ export const ONBOARDING_SERVICES: OnboardingService[] = [
   "bookkeeping",
   "corporate-tax",
   "company-formation",
+  "tax-account",
 ];
 
 export const PAYMENT_STATUSES: PaymentStatus[] = ["pending", "paid"];
@@ -219,4 +237,5 @@ export const ONBOARDING_SERVICE_LABELS: Record<OnboardingService, string> = {
   bookkeeping: "Bookkeeping",
   "corporate-tax": "Corporate Tax",
   "company-formation": "Company Formation",
+  "tax-account": "Register New Tax Account",
 };

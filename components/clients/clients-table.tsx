@@ -21,9 +21,9 @@ import {
 } from "@/app/(admin)/clients/actions";
 import {
   CLIENT_STATUSES,
-  FILING_STAGES,
   ONBOARDING_SERVICES,
   ONBOARDING_SERVICE_LABELS,
+  stageLabelsForService,
   type Client,
   type ClientEngagement,
   type PortalStatus,
@@ -93,6 +93,8 @@ export function ClientsTable({
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
+  // Tracks the chosen service so the progress field can show the right steps.
+  const [serviceValue, setServiceValue] = useState<string>(NO_SERVICE);
   const [isPending, startTransition] = useTransition();
 
   const filtered = clients.filter((c) => {
@@ -107,11 +109,13 @@ export function ClientsTable({
 
   function openCreate() {
     setEditing(null);
+    setServiceValue(NO_SERVICE);
     setDialogOpen(true);
   }
 
   function openEdit(client: Client) {
     setEditing(client);
+    setServiceValue(engagements[client.id]?.service ?? NO_SERVICE);
     setDialogOpen(true);
   }
 
@@ -369,6 +373,7 @@ export function ClientsTable({
                     <Select
                       name="service"
                       defaultValue={editing ? engagements[editing.id]?.service ?? NO_SERVICE : NO_SERVICE}
+                      onValueChange={(v) => setServiceValue(String(v))}
                     >
                       <SelectTrigger id="service">
                         <SelectValue />
@@ -400,26 +405,34 @@ export function ClientsTable({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="filing_stage">Formation progress</Label>
-                    <Select
-                      name="filing_stage"
-                      defaultValue={String(
-                        editing ? engagements[editing.id]?.filing_stage ?? 0 : 0,
-                      )}
-                    >
-                      <SelectTrigger id="filing_stage">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {FILING_STAGES.map((label, i) => (
-                          <SelectItem key={i} value={String(i)}>
-                            {i}. {label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {(() => {
+                    const stageLabels = stageLabelsForService(serviceValue);
+                    if (!stageLabels.length) return null;
+                    const title =
+                      serviceValue === "tax-account" ? "Registration progress" : "Formation progress";
+                    return (
+                      <div className="grid gap-2">
+                        <Label htmlFor="filing_stage">{title}</Label>
+                        <Select
+                          name="filing_stage"
+                          defaultValue={String(
+                            editing ? engagements[editing.id]?.filing_stage ?? 0 : 0,
+                          )}
+                        >
+                          <SelectTrigger id="filing_stage">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {stageLabels.map((label, i) => (
+                              <SelectItem key={i} value={String(i)}>
+                                {i}. {label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    );
+                  })()}
                 </div>
                 <div className="mt-3 grid gap-2">
                   <Label htmlFor="password">
