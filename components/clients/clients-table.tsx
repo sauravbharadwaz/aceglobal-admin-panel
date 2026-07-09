@@ -280,7 +280,7 @@ export function ClientsTable({
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-3xl max-h-[92dvh] overflow-y-auto">
           {/* key forces the uncontrolled form to reset between create/edit */}
           <form action={handleSubmit} key={editing?.id ?? "new"}>
             <DialogHeader>
@@ -291,85 +291,79 @@ export function ClientsTable({
                   : "Create a client, then invite them to their dashboard."}
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
+            <div className="grid gap-4 py-4 sm:grid-cols-2">
+              <div className="grid gap-2 sm:col-span-2">
                 <Label htmlFor="name">Name *</Label>
                 <Input id="name" name="name" defaultValue={editing?.name ?? ""} required />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" type="email" defaultValue={editing?.email ?? ""} />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="phone">Phone</Label>
-                  <Input id="phone" name="phone" defaultValue={editing?.phone ?? ""} />
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="email">Email</Label>
+                <Input id="email" name="email" type="email" defaultValue={editing?.email ?? ""} />
               </div>
               <div className="grid gap-2">
+                <Label htmlFor="phone">Phone</Label>
+                <Input id="phone" name="phone" defaultValue={editing?.phone ?? ""} />
+              </div>
+              <div className="grid gap-2 sm:col-span-2">
                 <Label htmlFor="company">Company</Label>
                 <Input id="company" name="company" defaultValue={editing?.company ?? ""} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select name="status" defaultValue={editing?.status ?? "active"}>
-                    <SelectTrigger id="status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {CLIENT_STATUSES.map((s) => (
-                        <SelectItem key={s} value={s} className="capitalize">
-                          {titleCase(s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="plan">Plan</Label>
-                  <Select name="plan" defaultValue={editing?.plan ?? "starter"}>
-                    <SelectTrigger id="plan">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {PLANS.map((p) => (
-                        <SelectItem key={p} value={p} className="capitalize">
-                          {titleCase(p)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="status">Status</Label>
+                <Select name="status" defaultValue={editing?.status ?? "active"}>
+                  <SelectTrigger id="status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CLIENT_STATUSES.map((s) => (
+                      <SelectItem key={s} value={s} className="capitalize">
+                        {titleCase(s)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-2">
-                  <Label htmlFor="mrr">MRR (USD)</Label>
-                  <Input
-                    id="mrr"
-                    name="mrr"
-                    type="number"
-                    min="0"
-                    step="50"
-                    defaultValue={editing?.mrr ?? 0}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="owner">Account manager</Label>
-                  <Input id="owner" name="owner" defaultValue={editing?.owner ?? ""} />
-                </div>
+              <div className="grid gap-2">
+                <Label htmlFor="plan">Plan</Label>
+                <Select name="plan" defaultValue={editing?.plan ?? "starter"}>
+                  <SelectTrigger id="plan">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PLANS.map((p) => (
+                      <SelectItem key={p} value={p} className="capitalize">
+                        {titleCase(p)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="mrr">MRR (USD)</Label>
+                <Input
+                  id="mrr"
+                  name="mrr"
+                  type="number"
+                  min="0"
+                  step="50"
+                  defaultValue={editing?.mrr ?? 0}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="owner">Account manager</Label>
+                <Input id="owner" name="owner" defaultValue={editing?.owner ?? ""} />
               </div>
 
               {/* ── Client dashboard (portal) ─────────────────────────────── */}
-              <div className="mt-1 rounded-lg border bg-muted/30 p-4">
+              <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
                 <div className="mb-3">
                   <h4 className="text-sm font-semibold">Client dashboard</h4>
                   <p className="text-xs text-muted-foreground">
                     What this client sees when they log in. Pick a service to enable
-                    their dashboard, then use <span className="font-medium">Invite to dashboard</span> to email them a login.
+                    their dashboard, then set a login password below (or invite by email).
                   </p>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
                   <div className="grid gap-2">
                     <Label htmlFor="service">Service</Label>
                     <Select
@@ -406,26 +400,26 @@ export function ClientsTable({
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-                <div className="mt-3 grid gap-2">
-                  <Label htmlFor="filing_stage">Formation progress (company formation only)</Label>
-                  <Select
-                    name="filing_stage"
-                    defaultValue={String(
-                      editing ? engagements[editing.id]?.filing_stage ?? 0 : 0,
-                    )}
-                  >
-                    <SelectTrigger id="filing_stage">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {FILING_STAGES.map((label, i) => (
-                        <SelectItem key={i} value={String(i)}>
-                          {i}. {label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <div className="grid gap-2">
+                    <Label htmlFor="filing_stage">Formation progress</Label>
+                    <Select
+                      name="filing_stage"
+                      defaultValue={String(
+                        editing ? engagements[editing.id]?.filing_stage ?? 0 : 0,
+                      )}
+                    >
+                      <SelectTrigger id="filing_stage">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {FILING_STAGES.map((label, i) => (
+                          <SelectItem key={i} value={String(i)}>
+                            {i}. {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="mt-3 grid gap-2">
                   <Label htmlFor="password">
