@@ -342,7 +342,7 @@ export function OnboardingTable({
       </div>
 
       <Dialog open={!!detail} onOpenChange={(open) => !open && setDetail(null)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-3xl max-h-[88dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>
               {detail ? ONBOARDING_SERVICE_LABELS[detail.service] : ""} submission
