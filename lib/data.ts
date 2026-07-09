@@ -80,7 +80,7 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("onboarding_submissions")
-    .select("id, client_id, service, filing_stage, payment_status")
+    .select("id, client_id, service, filing_stage, payment_status, details")
     .not("client_id", "is", null)
     .order("created_at", { ascending: true });
   if (error) {
@@ -90,9 +90,24 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     throw new Error(error.message);
   }
   const map: Record<string, ClientEngagement> = {};
-  for (const row of (data as ClientEngagement[]) ?? []) {
+  for (const row of (data as (ClientEngagement & { details?: Record<string, unknown> })[]) ?? []) {
     // earliest row per client is the primary engagement (ascending order above)
-    if (row.client_id && !map[row.client_id]) map[row.client_id] = row;
+    if (!row.client_id || map[row.client_id]) continue;
+    const rawDocs = (row.details?.documents as unknown) ?? [];
+    const documents = Array.isArray(rawDocs)
+      ? rawDocs
+          .filter((d): d is { name?: string; path?: string; size?: number } =>
+            !!d && typeof d === "object" && typeof (d as { path?: unknown }).path === "string")
+          .map((d) => ({ name: d.name ?? "document", path: d.path as string, size: d.size ?? null }))
+      : [];
+    map[row.client_id] = {
+      id: row.id,
+      client_id: row.client_id,
+      service: row.service,
+      filing_stage: row.filing_stage,
+      payment_status: row.payment_status,
+      documents,
+    };
   }
   return map;
 }

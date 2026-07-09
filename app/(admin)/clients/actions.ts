@@ -321,6 +321,27 @@ export async function revokeClientPortal(clientId: string): Promise<Result> {
   return { error: null };
 }
 
+/** Generate a short-lived signed download URL for a client-uploaded document. */
+export async function getDocumentUrl(
+  path: string,
+): Promise<{ url: string | null; error: string | null }> {
+  if (!(await currentUserIsStaff())) return { url: null, error: "Staff access required." };
+  if (!path) return { url: null, error: "Missing document." };
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { url: null, error: e instanceof Error ? e.message : "Documents are not configured." };
+  }
+
+  const { data, error } = await admin.storage
+    .from("client-documents")
+    .createSignedUrl(path, 300); // valid 5 minutes
+  if (error) return { url: null, error: error.message };
+  return { url: data.signedUrl, error: null };
+}
+
 function emptyToNull(value: FormDataEntryValue | null): string | null {
   const s = String(value ?? "").trim();
   return s.length ? s : null;

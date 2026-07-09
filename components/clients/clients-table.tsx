@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import {
+  Download,
+  FileText,
   KeyRound,
   MoreHorizontal,
   Pencil,
@@ -15,6 +17,7 @@ import { toast } from "sonner";
 import {
   createClientRecord,
   deleteClientRecord,
+  getDocumentUrl,
   inviteClientToPortal,
   revokeClientPortal,
   updateClientRecord,
@@ -159,6 +162,14 @@ export function ClientsTable({
       const res = await revokeClientPortal(client.id);
       if (res.error) toast.error(res.error);
       else toast.success(`Dashboard access revoked for ${client.name}`);
+    });
+  }
+
+  function handleDownloadDoc(path: string) {
+    startTransition(async () => {
+      const res = await getDocumentUrl(path);
+      if (res.error || !res.url) toast.error(res.error ?? "Couldn't open that document.");
+      else window.open(res.url, "_blank", "noopener");
     });
   }
 
@@ -434,6 +445,26 @@ export function ClientsTable({
                     );
                   })()}
                 </div>
+                {editing && (engagements[editing.id]?.documents?.length ?? 0) > 0 && (
+                  <div className="mt-3 grid gap-2">
+                    <Label>Submitted documents</Label>
+                    <div className="grid gap-2">
+                      {engagements[editing.id]!.documents.map((doc) => (
+                        <button
+                          key={doc.path}
+                          type="button"
+                          onClick={() => handleDownloadDoc(doc.path)}
+                          disabled={isPending}
+                          className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60"
+                        >
+                          <FileText className="size-4 shrink-0 text-muted-foreground" />
+                          <span className="flex-1 truncate">{doc.name}</span>
+                          <Download className="size-4 shrink-0 text-muted-foreground" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-3 grid gap-2">
                   <Label htmlFor="password">
                     Login password {editing?.user_id ? "(type a new one to reset)" : "(optional)"}

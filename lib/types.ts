@@ -192,6 +192,13 @@ export interface Client {
   portal_status?: PortalStatus | null;
 }
 
+/** A business document a client uploaded (stored in the client-documents bucket). */
+export interface ClientDocument {
+  name: string;
+  path: string;
+  size?: number | null;
+}
+
 /** The dashboard engagement linked to a client (one onboarding_submissions row). */
 export interface ClientEngagement {
   id: string;
@@ -199,6 +206,7 @@ export interface ClientEngagement {
   service: OnboardingService;
   filing_stage: number | null;
   payment_status: PaymentStatus | null;
+  documents: ClientDocument[];
 }
 
 export const LEAD_STATUSES: LeadStatus[] = [
