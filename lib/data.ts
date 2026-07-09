@@ -80,8 +80,7 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("onboarding_submissions")
-    .select("id, client_id, service, filing_stage, payment_status, details")
-    .not("client_id", "is", null)
+    .select("id, client_id, user_id, service, filing_stage, payment_status, details")
     .order("created_at", { ascending: true });
   if (error) {
     if (isMissingTable(error)) return {};
@@ -89,26 +88,55 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     if (/client_id/i.test(error.message ?? "")) return {};
     throw new Error(error.message);
   }
-  const map: Record<string, ClientEngagement> = {};
-  for (const row of (data as (ClientEngagement & { details?: Record<string, unknown> })[]) ?? []) {
-    // earliest row per client is the primary engagement (ascending order above)
-    if (!row.client_id || map[row.client_id]) continue;
-    const rawDocs = (row.details?.documents as unknown) ?? [];
-    const documents = Array.isArray(rawDocs)
-      ? rawDocs
+
+  // Resolve app-submitted requests (client_id NULL but user_id set) back to the
+  // client via their login, so their uploaded documents show up in the editor.
+  const clients = await getClients();
+  const userToClient: Record<string, string> = {};
+  for (const c of clients) if (c.user_id) userToClient[c.user_id] = c.id;
+
+  type Row = ClientEngagement & { user_id?: string | null; details?: Record<string, unknown> };
+  const extractDocs = (details?: Record<string, unknown>) => {
+    const raw = (details?.documents as unknown) ?? [];
+    return Array.isArray(raw)
+      ? raw
           .filter((d): d is { name?: string; path?: string; size?: number } =>
             !!d && typeof d === "object" && typeof (d as { path?: unknown }).path === "string")
           .map((d) => ({ name: d.name ?? "document", path: d.path as string, size: d.size ?? null }))
       : [];
-    map[row.client_id] = {
-      id: row.id,
-      client_id: row.client_id,
-      service: row.service,
-      filing_stage: row.filing_stage,
-      payment_status: row.payment_status,
-      documents,
-    };
+  };
+
+  const map: Record<string, ClientEngagement & { _linked?: boolean }> = {};
+  for (const row of (data as Row[]) ?? []) {
+    const clientId = row.client_id ?? (row.user_id ? userToClient[row.user_id] : null);
+    if (!clientId) continue;
+    const docs = extractDocs(row.details);
+    const existing = map[clientId];
+    if (!existing) {
+      // earliest row backs the engagement fields (ascending order above)
+      map[clientId] = {
+        id: row.id,
+        client_id: clientId,
+        service: row.service,
+        filing_stage: row.filing_stage,
+        payment_status: row.payment_status,
+        documents: docs,
+        _linked: !!row.client_id,
+      };
+    } else {
+      // aggregate documents from every row belonging to this client
+      existing.documents.push(...docs);
+      // prefer a client_id-linked row (the admin-managed one) for the tracked fields
+      if (row.client_id && !existing._linked) {
+        existing.id = row.id;
+        existing.service = row.service;
+        existing.filing_stage = row.filing_stage;
+        existing.payment_status = row.payment_status;
+        existing._linked = true;
+      }
+    }
   }
+  for (const k of Object.keys(map)) delete map[k]._linked;
   return map;
 }
 

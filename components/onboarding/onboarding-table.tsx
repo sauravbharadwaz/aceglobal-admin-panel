@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { BellRing, Download, Eye, MoreHorizontal, Search, Send, Trash2 } from "lucide-react";
+import { BellRing, Download, Eye, FileText, MoreHorizontal, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteOnboardingSubmission,
@@ -9,10 +9,11 @@ import {
   updateFilingStage,
   updateOnboardingStatus,
 } from "@/app/(admin)/onboarding/actions";
+import { getDocumentUrl } from "@/app/(admin)/clients/actions";
 import {
-  FILING_STAGES,
   ONBOARDING_SERVICE_LABELS,
   ONBOARDING_STATUSES,
+  stageLabelsForService,
   type OnboardingStatus,
   type OnboardingSubmission,
   type PaymentStatus,
@@ -58,7 +59,21 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: "bookkeeping", label: "Bookkeeping" },
   { key: "corporate-tax", label: "Corporate Tax" },
   { key: "company-formation", label: "Company Formation" },
+  { key: "tax-account", label: "Register New Tax Account" },
 ];
+
+/** Documents the client uploaded (stored in details.documents). */
+function getDocuments(detail: OnboardingSubmission | null): { name: string; path: string }[] {
+  const raw = (detail?.details?.documents as unknown) ?? [];
+  return Array.isArray(raw)
+    ? raw
+        .filter(
+          (d): d is { name?: string; path?: string } =>
+            !!d && typeof d === "object" && typeof (d as { path?: unknown }).path === "string",
+        )
+        .map((d) => ({ name: d.name ?? "document", path: d.path as string }))
+    : [];
+}
 
 function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
@@ -144,6 +159,14 @@ export function OnboardingTable({
     } catch {
       toast.error("Could not generate the application PDF.");
     }
+  }
+
+  function handleDownloadDoc(path: string) {
+    startTransition(async () => {
+      const res = await getDocumentUrl(path);
+      if (res.error || !res.url) toast.error(res.error ?? "Couldn't open that document.");
+      else window.open(res.url, "_blank", "noopener");
+    });
   }
 
   function handleFilingStage(id: string, stage: number) {
@@ -379,10 +402,12 @@ export function OnboardingTable({
               </dl>
             </div>
           )}
-          {detail && detail.service === "company-formation" && (
+          {detail && stageLabelsForService(detail.service).length > 0 && (
             <div className="rounded-lg border p-4">
               <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-sm font-medium">Filing progress</span>
+                <span className="text-sm font-medium">
+                  {detail.service === "tax-account" ? "Registration progress" : "Filing progress"}
+                </span>
                 <span className="text-xs text-muted-foreground">
                   Shown live on the client&apos;s dashboard
                 </span>
@@ -395,13 +420,34 @@ export function OnboardingTable({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {FILING_STAGES.map((label, i) => (
+                  {stageLabelsForService(detail.service).map((label, i) => (
                     <SelectItem key={i} value={String(i)}>
                       {i}. {label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {detail && getDocuments(detail).length > 0 && (
+            <div className="rounded-lg border p-4">
+              <div className="mb-2 text-sm font-medium">Submitted documents</div>
+              <div className="grid gap-2">
+                {getDocuments(detail).map((doc) => (
+                  <button
+                    key={doc.path}
+                    type="button"
+                    onClick={() => handleDownloadDoc(doc.path)}
+                    disabled={isPending}
+                    className="flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-60"
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 truncate">{doc.name}</span>
+                    <Download className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {detail && (
@@ -444,12 +490,12 @@ export function OnboardingTable({
           )}
           {detail && (
             <dl className="divide-y rounded-lg border">
-              {Object.entries(detail.details).length === 0 ? (
+              {Object.entries(detail.details).filter(([k]) => k !== "documents").length === 0 ? (
                 <p className="p-4 text-sm text-muted-foreground">
                   No extra details were captured for this submission.
                 </p>
               ) : (
-                Object.entries(detail.details).map(([key, value]) => (
+                Object.entries(detail.details).filter(([k]) => k !== "documents").map(([key, value]) => (
                   <div key={key} className="grid grid-cols-3 gap-3 px-4 py-2.5 text-sm">
                     <dt className="text-muted-foreground">{titleCase(key)}</dt>
                     <dd className="col-span-2 break-words font-medium">
