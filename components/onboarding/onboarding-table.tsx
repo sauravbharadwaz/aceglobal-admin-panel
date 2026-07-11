@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { BellRing, Download, Eye, FileText, MoreHorizontal, Search, Send, Trash2 } from "lucide-react";
+import { BellRing, Download, Eye, FileText, MoreHorizontal, Search, Send, Trash2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import {
+  convertToClient,
   deleteOnboardingSubmission,
   sendNotification,
   updateFilingStage,
@@ -134,6 +135,14 @@ export function OnboardingTable({
       const res = await deleteOnboardingSubmission(id);
       if (res.error) toast.error(res.error);
       else toast.success("Submission deleted");
+    });
+  }
+
+  function handleConvert(id: string) {
+    startTransition(async () => {
+      const res = await convertToClient(id);
+      if (res.error) toast.error(res.error);
+      else toast.success("Added to the Clients section");
     });
   }
 
@@ -323,6 +332,10 @@ export function OnboardingTable({
                         >
                           <Eye className="size-4" />
                           View details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleConvert(s.id)}>
+                          <UserPlus className="size-4" />
+                          Convert to client
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"

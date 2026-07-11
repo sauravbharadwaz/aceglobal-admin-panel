@@ -53,6 +53,85 @@ export async function sendNotification(
   return { error: null };
 }
 
+/**
+ * Promote an onboarding submission into the Clients section: create a `clients`
+ * record from it (or reuse an existing client matched by login / email) and link
+ * the submission — and any sibling submissions from the same login — to that
+ * client via client_id, so it shows in the client editor with its documents and
+ * progress. Staff-only (enforced by RLS on the clients / onboarding tables).
+ * Idempotent: a submission already linked to a client is a no-op success.
+ */
+export async function convertToClient(id: string): Promise<Result> {
+  const supabase = await createClient();
+
+  const { data: sub, error: subErr } = await supabase
+    .from("onboarding_submissions")
+    .select("id, name, email, company, plan, client_id, user_id")
+    .eq("id", id)
+    .maybeSingle();
+  if (subErr) return { error: subErr.message };
+  if (!sub) return { error: "Submission not found." };
+  if (sub.client_id) return { error: null }; // already a client
+
+  const email = (sub.email ?? "").trim().toLowerCase() || null;
+
+  // Reuse an existing client where possible (same login, then same email) so we
+  // don't create a duplicate for a client who already exists.
+  let clientId: string | null = null;
+  if (sub.user_id) {
+    const { data } = await supabase
+      .from("clients").select("id").eq("user_id", sub.user_id).limit(1).maybeSingle();
+    if (data?.id) clientId = data.id;
+  }
+  if (!clientId && email) {
+    const { data } = await supabase
+      .from("clients").select("id").ilike("email", email).limit(1).maybeSingle();
+    if (data?.id) clientId = data.id;
+  }
+
+  if (!clientId) {
+    const insert: Record<string, unknown> = {
+      name: sub.name || email || "New client",
+      email,
+      company: sub.company ?? null,
+      plan: sub.plan ?? null,
+      status: "onboarding",
+      mrr: 0,
+    };
+    // Carry over the client's login so their dashboard data + documents resolve.
+    if (sub.user_id) {
+      insert.user_id = sub.user_id;
+      insert.portal_status = "active";
+    }
+    const { data: created, error: cErr } = await supabase
+      .from("clients").insert(insert).select("id").single();
+    if (cErr) return { error: cErr.message };
+    clientId = created.id;
+  } else if (sub.user_id) {
+    // Link the login to the existing client if it wasn't already.
+    await supabase
+      .from("clients").update({ user_id: sub.user_id }).eq("id", clientId).is("user_id", null);
+  }
+
+  const { error: linkErr } = await supabase
+    .from("onboarding_submissions").update({ client_id: clientId }).eq("id", id);
+  if (linkErr) return { error: linkErr.message };
+
+  // Adopt the client's other unlinked submissions too, so all their requests and
+  // documents gather under the one client record.
+  if (sub.user_id) {
+    await supabase
+      .from("onboarding_submissions")
+      .update({ client_id: clientId })
+      .eq("user_id", sub.user_id)
+      .is("client_id", null);
+  }
+
+  revalidatePath("/onboarding");
+  revalidatePath("/clients");
+  return { error: null };
+}
+
 export async function deleteOnboardingSubmission(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase
