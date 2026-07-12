@@ -12,9 +12,11 @@ import {
   Send,
   ShieldOff,
   Trash2,
+  UserCog,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
+  assignClientOwner,
   createClientRecord,
   deleteClientRecord,
   getDocumentUrl,
@@ -30,6 +32,7 @@ import {
   type Client,
   type ClientDocument,
   type ClientEngagement,
+  type Expert,
   type PortalStatus,
 } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +68,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -78,6 +84,9 @@ import {
 
 const PLANS = ["starter", "growth", "enterprise"];
 const NO_SERVICE = "none";
+// Sentinel for "no account manager" — Select can't use an empty-string value,
+// so we map this to null on submit / assign.
+const UNASSIGNED = "__unassigned__";
 
 function PortalBadge({ status }: { status: PortalStatus }) {
   return (
@@ -91,18 +100,32 @@ export function ClientsTable({
   clients,
   engagements,
   documents = {},
+  experts = [],
 }: {
   clients: Client[];
   engagements: Record<string, ClientEngagement>;
   /** Standalone documents (dashboard "Documents" section) keyed by client id. */
   documents?: Record<string, ClientDocument[]>;
+  /** Team members clients can be assigned to (account managers). */
+  experts?: Expert[];
 }) {
   const [query, setQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Client | null>(null);
   // Tracks the chosen service so the progress field can show the right steps.
   const [serviceValue, setServiceValue] = useState<string>(NO_SERVICE);
+  // Selected account manager in the editor (UNASSIGNED sentinel = nobody).
+  const [ownerValue, setOwnerValue] = useState<string>(UNASSIGNED);
   const [isPending, startTransition] = useTransition();
+
+  // Distinct assignable names: every expert, plus any legacy free-text owner
+  // already on a client so existing assignments never disappear from the picker.
+  const managers = Array.from(
+    new Set([
+      ...experts.map((e) => e.name).filter(Boolean),
+      ...clients.map((c) => c.owner).filter((o): o is string => !!o),
+    ]),
+  ).sort((a, b) => a.localeCompare(b));
 
   const filtered = clients.filter((c) => {
     const q = query.toLowerCase();
@@ -117,12 +140,14 @@ export function ClientsTable({
   function openCreate() {
     setEditing(null);
     setServiceValue(NO_SERVICE);
+    setOwnerValue(UNASSIGNED);
     setDialogOpen(true);
   }
 
   function openEdit(client: Client) {
     setEditing(client);
     setServiceValue(engagements[client.id]?.service ?? NO_SERVICE);
+    setOwnerValue(client.owner || UNASSIGNED);
     setDialogOpen(true);
   }
 
@@ -137,6 +162,18 @@ export function ClientsTable({
         toast.success(editing ? "Client updated" : "Client added");
         setDialogOpen(false);
       }
+    });
+  }
+
+  function handleAssign(client: Client, owner: string) {
+    if ((client.owner ?? "") === owner) return; // no change
+    startTransition(async () => {
+      const res = await assignClientOwner(client.id, owner);
+      if (res.error) toast.error(res.error);
+      else
+        toast.success(
+          owner ? `${client.name} assigned to ${owner}` : `${client.name} unassigned`,
+        );
     });
   }
 
@@ -202,6 +239,7 @@ export function ClientsTable({
               <TableHead>Client</TableHead>
               <TableHead className="hidden lg:table-cell">Contact</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead className="hidden md:table-cell">Account manager</TableHead>
               <TableHead className="hidden sm:table-cell">Plan</TableHead>
               <TableHead className="text-right">MRR</TableHead>
               <TableHead className="hidden md:table-cell">Dashboard</TableHead>
@@ -212,7 +250,7 @@ export function ClientsTable({
           <TableBody>
             {filtered.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={9} className="h-24 text-center text-muted-foreground">
                   No clients found.
                 </TableCell>
               </TableRow>
@@ -234,6 +272,13 @@ export function ClientsTable({
                     </TableCell>
                     <TableCell>
                       <ClientStatusBadge status={client.status} />
+                    </TableCell>
+                    <TableCell className="hidden md:table-cell text-sm">
+                      {client.owner ? (
+                        client.owner
+                      ) : (
+                        <span className="text-muted-foreground">Unassigned</span>
+                      )}
                     </TableCell>
                     <TableCell className="hidden sm:table-cell text-sm">
                       {client.plan ? titleCase(client.plan) : "—"}
@@ -259,6 +304,45 @@ export function ClientsTable({
                             <Pencil className="size-4" />
                             Edit
                           </DropdownMenuItem>
+                          <DropdownMenuSub>
+                            <DropdownMenuSubTrigger>
+                              <UserCog className="size-4" />
+                              Assign to…
+                            </DropdownMenuSubTrigger>
+                            <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                              {managers.length === 0 ? (
+                                <DropdownMenuItem disabled>
+                                  No team members yet
+                                </DropdownMenuItem>
+                              ) : (
+                                managers.map((name) => (
+                                  <DropdownMenuItem
+                                    key={name}
+                                    onClick={() => handleAssign(client, name)}
+                                    className={cn(client.owner === name && "font-semibold")}
+                                  >
+                                    {name}
+                                    {client.owner === name && (
+                                      <span className="ml-auto text-xs text-muted-foreground">
+                                        current
+                                      </span>
+                                    )}
+                                  </DropdownMenuItem>
+                                ))
+                              )}
+                              {client.owner && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleAssign(client, "")}
+                                    className="text-destructive focus:text-destructive"
+                                  >
+                                    Unassign
+                                  </DropdownMenuItem>
+                                </>
+                              )}
+                            </DropdownMenuSubContent>
+                          </DropdownMenuSub>
                           {!invited ? (
                             <DropdownMenuItem
                               onClick={() => handleInvite(client, false)}
@@ -370,7 +454,26 @@ export function ClientsTable({
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="owner">Account manager</Label>
-                <Input id="owner" name="owner" defaultValue={editing?.owner ?? ""} />
+                {/* Select can't submit an empty value, so a hidden input carries
+                    the real form value (blank when Unassigned). */}
+                <input
+                  type="hidden"
+                  name="owner"
+                  value={ownerValue === UNASSIGNED ? "" : ownerValue}
+                />
+                <Select value={ownerValue} onValueChange={(v) => setOwnerValue(String(v))}>
+                  <SelectTrigger id="owner">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
+                    {managers.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               {/* ── Client dashboard (portal) ─────────────────────────────── */}

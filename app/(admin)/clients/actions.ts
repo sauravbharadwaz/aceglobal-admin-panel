@@ -197,6 +197,22 @@ export async function updateClientRecord(
   return { error: null };
 }
 
+/**
+ * Quick-assign (or clear) a client's account manager without opening the full
+ * editor. Pass an empty string to unassign. `owner` is a plain name string that
+ * the Expert-Performance page groups by (client.owner === expert.name).
+ */
+export async function assignClientOwner(id: string, owner: string): Promise<Result> {
+  const value = owner.trim() || null;
+  const supabase = await createClient();
+  const { error } = await supabase.from("clients").update({ owner: value }).eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath("/clients");
+  revalidatePath("/expert-performance");
+  return { error: null };
+}
+
 export async function deleteClientRecord(id: string): Promise<Result> {
   const supabase = await createClient();
   const { error } = await supabase.from("clients").delete().eq("id", id);
