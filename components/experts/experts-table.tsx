@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Plus, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createExpert,
   deleteExpert,
+  inviteExpertToPanel,
   updateExpert,
 } from "@/app/(admin)/experts/actions";
 import { EXPERT_ROLES, EXPERT_STATUSES, type Expert } from "@/lib/types";
@@ -92,6 +93,14 @@ export function ExpertsTable({ experts }: { experts: Expert[] }) {
     });
   }
 
+  function handleInvite(expert: Expert) {
+    startTransition(async () => {
+      const res = await inviteExpertToPanel(expert.id);
+      if (res.error) toast.error(res.error);
+      else toast.success(`Panel invite sent to ${expert.email}`);
+    });
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -166,6 +175,13 @@ export function ExpertsTable({ experts }: { experts: Expert[] }) {
                         <DropdownMenuItem onClick={() => openEdit(expert)}>
                           <Pencil className="size-4" />
                           Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleInvite(expert)}
+                          disabled={!expert.email}
+                        >
+                          <Send className="size-4" />
+                          Invite to panel
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
