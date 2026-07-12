@@ -66,6 +66,9 @@ export interface Invoice {
   issued_at: string | null;
   due_at: string | null;
   notes: string | null;
+  // Set when the invoice was auto-synced from a Stripe payment (null = manual).
+  stripe_session_id: string | null;
+  client_email: string | null;
 }
 
 export const INVOICE_STATUSES: InvoiceStatus[] = [

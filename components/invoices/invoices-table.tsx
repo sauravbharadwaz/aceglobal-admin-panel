@@ -147,7 +147,21 @@ export function InvoicesTable({ invoices }: { invoices: Invoice[] }) {
             ) : (
               filtered.map((inv) => (
                 <TableRow key={inv.id}>
-                  <TableCell className="font-medium">{inv.client_name}</TableCell>
+                  <TableCell className="font-medium">
+                    <div className="flex items-center gap-2">
+                      {inv.client_name}
+                      {inv.stripe_session_id && (
+                        <span className="rounded bg-[#635bff]/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#635bff]">
+                          Stripe
+                        </span>
+                      )}
+                    </div>
+                    {inv.client_email && (
+                      <div className="text-xs font-normal text-muted-foreground">
+                        {inv.client_email}
+                      </div>
+                    )}
+                  </TableCell>
                   <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
                     {inv.number ?? "—"}
                   </TableCell>
