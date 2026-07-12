@@ -51,12 +51,17 @@ create table if not exists public.invoices (
   notes          text,
   -- Set by the Stripe webhook for auto-synced payments; null for manual invoices.
   stripe_session_id text,
-  client_email      text
+  client_email      text,
+  -- Set when an invoice is emailed to the client via Stripe (send-invoice flow).
+  stripe_invoice_id  text,
+  hosted_invoice_url text
 );
 create index if not exists invoices_status_idx  on public.invoices (status);
 create index if not exists invoices_created_idx on public.invoices (created_at desc);
 create unique index if not exists invoices_stripe_session_uq
   on public.invoices (stripe_session_id) where stripe_session_id is not null;
+create unique index if not exists invoices_stripe_invoice_uq
+  on public.invoices (stripe_invoice_id) where stripe_invoice_id is not null;
 
 -- ---------- ONBOARDING SUBMISSIONS (from app.aceglobal.ai) ----------
 create table if not exists public.onboarding_submissions (

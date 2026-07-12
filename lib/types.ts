@@ -69,6 +69,9 @@ export interface Invoice {
   // Set when the invoice was auto-synced from a Stripe payment (null = manual).
   stripe_session_id: string | null;
   client_email: string | null;
+  // Set when the invoice was emailed to the client via Stripe (send-invoice flow).
+  stripe_invoice_id: string | null;
+  hosted_invoice_url: string | null;
 }
 
 export const INVOICE_STATUSES: InvoiceStatus[] = [

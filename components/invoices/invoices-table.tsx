@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MoreHorizontal, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Copy, MoreHorizontal, Pencil, Plus, Search, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   createInvoice,
   deleteInvoice,
+  sendInvoiceByEmail,
   updateInvoice,
   updateInvoiceStatus,
 } from "@/app/(admin)/invoices/actions";
@@ -91,6 +92,23 @@ export function InvoicesTable({ invoices }: { invoices: Invoice[] }) {
       if (res.error) toast.error(res.error);
       else toast.success("Invoice status updated");
     });
+  }
+
+  function handleSend(inv: Invoice) {
+    startTransition(async () => {
+      const res = await sendInvoiceByEmail(inv.id);
+      if (res.error) toast.error(res.error);
+      else toast.success(`Invoice emailed to ${inv.client_email} to pay`);
+    });
+  }
+
+  async function handleCopyLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Pay link copied");
+    } catch {
+      toast.error("Couldn't copy the link");
+    }
   }
 
   function handleDelete(id: string, name: string) {
@@ -203,6 +221,25 @@ export function InvoicesTable({ invoices }: { invoices: Invoice[] }) {
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onClick={() => handleSend(inv)}
+                          disabled={
+                            !inv.client_email ||
+                            !(Number(inv.amount) > 0) ||
+                            inv.status === "paid"
+                          }
+                        >
+                          <Send className="size-4" />
+                          {inv.stripe_invoice_id ? "Resend invoice email" : "Email invoice to pay"}
+                        </DropdownMenuItem>
+                        {inv.hosted_invoice_url && (
+                          <DropdownMenuItem
+                            onClick={() => handleCopyLink(inv.hosted_invoice_url!)}
+                          >
+                            <Copy className="size-4" />
+                            Copy pay link
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => handleDelete(inv.id, inv.client_name)}
                         >
@@ -237,6 +274,19 @@ export function InvoicesTable({ invoices }: { invoices: Invoice[] }) {
                   defaultValue={editing?.client_name ?? ""}
                   required
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="client_email">Client email</Label>
+                <Input
+                  id="client_email"
+                  name="client_email"
+                  type="email"
+                  placeholder="client@company.com"
+                  defaultValue={editing?.client_email ?? ""}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Required to email a Stripe pay link.
+                </p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="grid gap-2">
