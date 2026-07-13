@@ -10,6 +10,7 @@ import {
   type ClientStatus,
   type OnboardingService,
 } from "@/lib/types";
+import { sendProgressEmail } from "@/lib/notify";
 
 type Result = { error: string | null };
 
@@ -68,23 +69,24 @@ async function notifyStageAdvance(
 ): Promise<void> {
   try {
     if (nextStage <= prevStage) return;
-    let userId = submissionUserId;
-    if (!userId) {
-      const { data } = await supabase
-        .from("clients")
-        .select("user_id")
-        .eq("id", clientId)
-        .maybeSingle();
-      userId = (data as { user_id?: string | null } | null)?.user_id ?? null;
-    }
-    if (!userId) return;
     const label = stageLabelsForService(service)[nextStage];
     if (!label) return;
-    await supabase.from("notifications").insert({
-      user_id: userId,
-      title: `Progress update: ${label}`,
-      body: `Good news — your application has moved forward to: ${label}.`,
-    });
+    // Resolve the client's portal user (for the in-app ping) + email (for Resend).
+    const { data } = await supabase
+      .from("clients")
+      .select("user_id, email")
+      .eq("id", clientId)
+      .maybeSingle();
+    const client = data as { user_id?: string | null; email?: string | null } | null;
+    const userId = submissionUserId ?? client?.user_id ?? null;
+    if (userId) {
+      await supabase.from("notifications").insert({
+        user_id: userId,
+        title: `Progress update: ${label}`,
+        body: `Good news — your application has moved forward to: ${label}.`,
+      });
+    }
+    await sendProgressEmail(client?.email, label);
   } catch {
     /* non-fatal: the stage was already saved */
   }

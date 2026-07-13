@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { stageLabelsForService, type OnboardingStatus } from "@/lib/types";
+import { sendProgressEmail } from "@/lib/notify";
 
 type Result = { error: string | null };
 
@@ -31,7 +32,7 @@ export async function updateFilingStage(
   // so a forward move on the client's progress bar pings them by name.
   const { data: sub } = await supabase
     .from("onboarding_submissions")
-    .select("filing_stage, user_id, service, client_id")
+    .select("filing_stage, user_id, service, client_id, email")
     .eq("id", id)
     .maybeSingle();
 
@@ -47,21 +48,27 @@ export async function updateFilingStage(
   const prev = Number(sub?.filing_stage ?? 0);
   if (s > prev) {
     let userId = (sub?.user_id as string | null) ?? null;
-    if (!userId && sub?.client_id) {
+    let email = (sub?.email as string | null) ?? null;
+    if ((!userId || !email) && sub?.client_id) {
       const { data: client } = await supabase
         .from("clients")
-        .select("user_id")
+        .select("user_id, email")
         .eq("id", sub.client_id)
         .maybeSingle();
-      userId = (client as { user_id?: string | null } | null)?.user_id ?? null;
+      const c = client as { user_id?: string | null; email?: string | null } | null;
+      userId = userId ?? c?.user_id ?? null;
+      email = email ?? c?.email ?? null;
     }
     const label = stageLabelsForService(sub?.service)[s];
-    if (userId && label) {
-      await supabase.from("notifications").insert({
-        user_id: userId,
-        title: `Progress update: ${label}`,
-        body: `Good news — your application has moved forward to: ${label}.`,
-      });
+    if (label) {
+      if (userId) {
+        await supabase.from("notifications").insert({
+          user_id: userId,
+          title: `Progress update: ${label}`,
+          body: `Good news — your application has moved forward to: ${label}.`,
+        });
+      }
+      await sendProgressEmail(email, label);
     }
   }
 
