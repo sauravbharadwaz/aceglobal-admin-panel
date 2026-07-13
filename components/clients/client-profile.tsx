@@ -26,11 +26,7 @@ import {
   updateClientStatus,
   uploadClientDocument,
 } from "@/app/(admin)/clients/actions";
-import {
-  createInvoice,
-  sendInvoiceByEmail,
-  updateInvoiceStatus,
-} from "@/app/(admin)/invoices/actions";
+import { createInvoice, sendInvoiceByEmail } from "@/app/(admin)/invoices/actions";
 import {
   CLIENT_STATUSES,
   ONBOARDING_SERVICES,
@@ -94,7 +90,19 @@ import {
 const PLANS = ["starter", "growth", "enterprise"];
 const NO_SERVICE = "none";
 const UNASSIGNED = "__unassigned__";
-const INVOICE_STATUSES: InvoiceStatus[] = ["draft", "sent", "paid", "overdue", "void"];
+
+/**
+ * Invoice status is fully automatic: sent (on ✈️), paid (Stripe webhook), and
+ * overdue derived here — any unpaid invoice past its due date reads as overdue,
+ * no cron or manual change needed.
+ */
+function effectiveInvoiceStatus(inv: Invoice): InvoiceStatus {
+  if (inv.status === "sent" && inv.due_at) {
+    const due = new Date(`${inv.due_at}T23:59:59`).getTime();
+    if (!Number.isNaN(due) && due < Date.now()) return "overdue";
+  }
+  return inv.status;
+}
 
 function PortalBadge({ status }: { status: PortalStatus }) {
   return (
@@ -228,14 +236,6 @@ export function ClientProfile({
         toast.success("Invoice created");
         setRaiseOpen(false);
       }
-    });
-  }
-
-  function handleInvoiceStatus(id: string, status: string) {
-    startTransition(async () => {
-      const res = await updateInvoiceStatus(id, status as InvoiceStatus);
-      if (res.error) toast.error(res.error);
-      else toast.success(`Invoice ${status}`);
     });
   }
 
@@ -660,38 +660,26 @@ export function ClientProfile({
                             {formatCurrency(inv.amount)}
                           </TableCell>
                           <TableCell>
-                            <InvoiceStatusBadge status={inv.status} />
+                            <InvoiceStatusBadge status={effectiveInvoiceStatus(inv)} />
                           </TableCell>
                           <TableCell className="hidden sm:table-cell text-sm text-muted-foreground">
                             {inv.due_at ? formatDate(inv.due_at) : "—"}
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center justify-end gap-1">
-                              <Select
-                                value={inv.status}
-                                onValueChange={(v) => handleInvoiceStatus(inv.id, String(v))}
-                              >
-                                <SelectTrigger className="h-8 w-28" aria-label="Invoice status">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {INVOICE_STATUSES.map((s) => (
-                                    <SelectItem key={s} value={s} className="capitalize">
-                                      {titleCase(s)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-8"
-                                onClick={() => handleSendInvoice(inv.id)}
-                                disabled={isPending || !client.email}
-                                aria-label="Email invoice"
-                              >
-                                <Send className="size-4" />
-                              </Button>
+                            <div className="flex items-center justify-end">
+                              {inv.status !== "paid" && inv.status !== "void" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="size-8"
+                                  onClick={() => handleSendInvoice(inv.id)}
+                                  disabled={isPending || !client.email}
+                                  aria-label={inv.status === "sent" ? "Resend invoice" : "Send invoice"}
+                                  title={inv.status === "sent" ? "Resend invoice email" : "Email invoice to pay"}
+                                >
+                                  <Send className="size-4" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -711,7 +699,10 @@ export function ClientProfile({
           <form action={handleRaiseInvoice}>
             <DialogHeader>
               <DialogTitle>Raise invoice</DialogTitle>
-              <DialogDescription>Create an invoice for {client.name}.</DialogDescription>
+              <DialogDescription>
+                Create an invoice for {client.name}, then use Send (✈️) on the row to
+                email a payable link. Status updates on its own — sent, overdue, and paid.
+              </DialogDescription>
             </DialogHeader>
             <div className="grid gap-4 py-4">
               <input type="hidden" name="client_name" value={client.name} />
@@ -724,21 +715,6 @@ export function ClientProfile({
                 <div className="grid gap-2">
                   <Label htmlFor="amount">Amount (USD) *</Label>
                   <Input id="amount" name="amount" type="number" min="0" step="0.01" required />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select name="status" defaultValue="draft">
-                    <SelectTrigger id="status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {INVOICE_STATUSES.map((s) => (
-                        <SelectItem key={s} value={s} className="capitalize">
-                          {titleCase(s)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="due_at">Due date</Label>
