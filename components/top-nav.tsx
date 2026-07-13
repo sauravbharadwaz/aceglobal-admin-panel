@@ -12,7 +12,7 @@ export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-40 border-b bg-card/80 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b bg-card/60 backdrop-blur-xl supports-[backdrop-filter]:bg-card/55">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:gap-4 sm:px-6">
         {/* Mobile hamburger */}
         <MobileNav email={email} />
