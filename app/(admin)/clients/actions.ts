@@ -139,7 +139,18 @@ async function syncEngagement(
   }
 
   const { error } = await supabase.from("onboarding_submissions").insert(payload);
-  return error ? error.message : null;
+  if (error) return error.message;
+  // First-time engagement (admin-created client, no prior submission): treat as a
+  // move from stage 0 so setting a real milestone still notifies + emails.
+  await notifyStageAdvance(
+    supabase,
+    clientId,
+    null,
+    0,
+    Number(engagement.filing_stage ?? 0),
+    engagement.service,
+  );
+  return null;
 }
 
 /**
