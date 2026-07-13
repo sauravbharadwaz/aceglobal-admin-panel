@@ -31,7 +31,7 @@ export async function updateFilingStage(
   // so a forward move on the client's progress bar pings them by name.
   const { data: sub } = await supabase
     .from("onboarding_submissions")
-    .select("filing_stage, user_id, service")
+    .select("filing_stage, user_id, service, client_id")
     .eq("id", id)
     .maybeSingle();
 
@@ -42,13 +42,23 @@ export async function updateFilingStage(
   if (error) return { error: error.message };
 
   // Notify the client only when the progress bar moves forward (not on backward
-  // corrections), and only when the submission is linked to a signed-in user.
+  // corrections). Prefer the submission's user; fall back to the linked client's
+  // portal user so it still fires for admin-created engagements.
   const prev = Number(sub?.filing_stage ?? 0);
-  if (sub?.user_id && s > prev) {
-    const label = stageLabelsForService(sub.service)[s];
-    if (label) {
+  if (s > prev) {
+    let userId = (sub?.user_id as string | null) ?? null;
+    if (!userId && sub?.client_id) {
+      const { data: client } = await supabase
+        .from("clients")
+        .select("user_id")
+        .eq("id", sub.client_id)
+        .maybeSingle();
+      userId = (client as { user_id?: string | null } | null)?.user_id ?? null;
+    }
+    const label = stageLabelsForService(sub?.service)[s];
+    if (userId && label) {
       await supabase.from("notifications").insert({
-        user_id: sub.user_id,
+        user_id: userId,
         title: `Progress update: ${label}`,
         body: `Good news — your application has moved forward to: ${label}.`,
       });

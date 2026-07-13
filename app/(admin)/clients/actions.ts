@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { currentUserIsStaff } from "@/lib/staff-guard";
-import { ONBOARDING_SERVICES, type ClientStatus, type OnboardingService } from "@/lib/types";
+import {
+  ONBOARDING_SERVICES,
+  stageLabelsForService,
+  type ClientStatus,
+  type OnboardingService,
+} from "@/lib/types";
 
 type Result = { error: string | null };
 
@@ -48,6 +53,43 @@ type EngagementValues = ReturnType<typeof parseEngagement>;
  * client_id. Preserves an already-linked user_id so re-editing a client never
  * detaches their login. No-op when no service is selected.
  */
+/**
+ * Ping the client on their dashboard when their progress bar moves forward.
+ * Targets the client's portal user (falls back to the submission's user), so it
+ * only fires for a client who can actually log in. Best-effort — never blocks a save.
+ */
+async function notifyStageAdvance(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clientId: string,
+  submissionUserId: string | null,
+  prevStage: number,
+  nextStage: number,
+  service: OnboardingService,
+): Promise<void> {
+  try {
+    if (nextStage <= prevStage) return;
+    let userId = submissionUserId;
+    if (!userId) {
+      const { data } = await supabase
+        .from("clients")
+        .select("user_id")
+        .eq("id", clientId)
+        .maybeSingle();
+      userId = (data as { user_id?: string | null } | null)?.user_id ?? null;
+    }
+    if (!userId) return;
+    const label = stageLabelsForService(service)[nextStage];
+    if (!label) return;
+    await supabase.from("notifications").insert({
+      user_id: userId,
+      title: `Progress update: ${label}`,
+      body: `Good news — your application has moved forward to: ${label}.`,
+    });
+  } catch {
+    /* non-fatal: the stage was already saved */
+  }
+}
+
 async function syncEngagement(
   supabase: Awaited<ReturnType<typeof createClient>>,
   clientId: string,
@@ -58,7 +100,7 @@ async function syncEngagement(
 
   const { data: existing } = await supabase
     .from("onboarding_submissions")
-    .select("id")
+    .select("id, filing_stage, user_id")
     .eq("client_id", clientId)
     .order("created_at", { ascending: true })
     .limit(1)
@@ -81,7 +123,17 @@ async function syncEngagement(
       .from("onboarding_submissions")
       .update(payload)
       .eq("id", existing.id);
-    return error ? error.message : null;
+    if (error) return error.message;
+    const ex = existing as { filing_stage?: number | null; user_id?: string | null };
+    await notifyStageAdvance(
+      supabase,
+      clientId,
+      ex.user_id ?? null,
+      Number(ex.filing_stage ?? 0),
+      Number(engagement.filing_stage ?? 0),
+      engagement.service,
+    );
+    return null;
   }
 
   const { error } = await supabase.from("onboarding_submissions").insert(payload);
