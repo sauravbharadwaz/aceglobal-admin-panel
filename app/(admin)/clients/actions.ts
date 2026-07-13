@@ -358,6 +358,100 @@ export async function getDocumentUrl(
   return { url: data.signedUrl, error: null };
 }
 
+/** Quick inline status change from the client profile (no full edit form). */
+export async function updateClientStatus(
+  id: string,
+  status: ClientStatus,
+): Promise<Result> {
+  const supabase = await createClient();
+  const { error } = await supabase.from("clients").update({ status }).eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath(`/clients/${id}`);
+  revalidatePath("/clients");
+  return { error: null };
+}
+
+/**
+ * Upload a document for a client from the admin profile page. Stored in the same
+ * `client-documents` bucket + `client_documents` table the dashboard reads, and
+ * linked to the client's portal user (when they have one) so it shows up for them.
+ */
+export async function uploadClientDocument(
+  clientId: string,
+  formData: FormData,
+): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload." };
+  if (file.size > 25 * 1024 * 1024) return { error: "File is too large (max 25 MB)." };
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Documents are not configured." };
+  }
+
+  // Link the upload to the client's portal user (if any) so it appears on their dashboard.
+  const supabase = await createClient();
+  const { data: client } = await supabase
+    .from("clients")
+    .select("user_id")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  const safeName = (file.name || "document").replace(/[^\w.\-]+/g, "_").slice(-120) || "document";
+  const path = `${clientId}/${Date.now()}-${safeName}`;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+
+  const up = await admin.storage.from("client-documents").upload(path, bytes, {
+    contentType: file.type || "application/octet-stream",
+    upsert: false,
+  });
+  if (up.error) return { error: up.error.message };
+
+  const { error } = await admin.from("client_documents").insert({
+    client_id: clientId,
+    user_id: (client as { user_id?: string | null } | null)?.user_id ?? null,
+    name: (file.name || "document").slice(0, 200),
+    path,
+    size: file.size,
+  });
+  if (error) {
+    // Roll back the orphaned object so we don't leave a file with no row.
+    await admin.storage.from("client-documents").remove([path]);
+    return { error: error.message };
+  }
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/clients");
+  return { error: null };
+}
+
+/** Remove a client document (storage object + table row). */
+export async function deleteClientDocument(
+  clientId: string,
+  path: string,
+): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+  if (!path) return { error: "Missing document." };
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Documents are not configured." };
+  }
+
+  await admin.storage.from("client-documents").remove([path]);
+  const { error } = await admin.from("client_documents").delete().eq("path", path);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/clients/${clientId}`);
+  revalidatePath("/clients");
+  return { error: null };
+}
+
 function emptyToNull(value: FormDataEntryValue | null): string | null {
   const s = String(value ?? "").trim();
   return s.length ? s : null;

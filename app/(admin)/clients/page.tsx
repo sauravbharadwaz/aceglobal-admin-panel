@@ -1,13 +1,12 @@
-import { getClients, getClientEngagements, getClientDocuments, getExperts } from "@/lib/data";
+import { getClients, getClientEngagements, getExperts } from "@/lib/data";
 import { ClientsTable } from "@/components/clients/clients-table";
 
 export const dynamic = "force-dynamic";
 
 export default async function ClientsPage() {
-  const [clients, engagements, documents, experts] = await Promise.all([
+  const [clients, engagements, experts] = await Promise.all([
     getClients(),
     getClientEngagements(),
-    getClientDocuments(),
     getExperts(),
   ]);
 
@@ -19,12 +18,7 @@ export default async function ClientsPage() {
           Active and past customers across all engagements.
         </p>
       </div>
-      <ClientsTable
-        clients={clients}
-        engagements={engagements}
-        documents={documents}
-        experts={experts}
-      />
+      <ClientsTable clients={clients} engagements={engagements} experts={experts} />
     </div>
   );
 }
