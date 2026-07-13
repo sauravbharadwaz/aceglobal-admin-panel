@@ -360,12 +360,15 @@ export function ClientProfile({
 
       {/* ── Tabs ───────────────────────────────────────────────── */}
       <Tabs defaultValue="overview">
-        <TabsList>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="documents">Documents ({documents.length})</TabsTrigger>
-          <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
-        </TabsList>
+        {/* Scrolls horizontally on small screens instead of overflowing the page. */}
+        <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <TabsList className="w-max">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="documents">Documents ({documents.length})</TabsTrigger>
+            <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
+          </TabsList>
+        </div>
 
         {/* Overview */}
         <TabsContent value="overview" className="pt-4">
@@ -578,7 +581,7 @@ export function ClientProfile({
               <form action={handleUpload} className="flex flex-wrap items-end gap-3">
                 <div className="grid gap-2">
                   <Label htmlFor="file">Upload a document</Label>
-                  <Input id="file" name="file" type="file" required className="w-72" />
+                  <Input id="file" name="file" type="file" required className="w-full sm:w-72" />
                 </div>
                 <Button type="submit" disabled={isPending}>
                   <Upload className="size-4" />
