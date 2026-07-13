@@ -22,7 +22,9 @@ export async function sendProgressEmail(
   if (!key) return { ok: false, error: "Email isn't set up: RESEND_API_KEY is missing on this deployment." };
   if (!recipient) return { ok: false, error: "No email address on file for this client." };
 
-  const from = process.env.NOTIFY_EMAIL_FROM || "Ace Global <updates@aceglobal.ai>";
+  // Must be an address on a Resend-verified domain. We verified the
+  // updates.aceglobal.ai subdomain, so default the sender there.
+  const from = process.env.NOTIFY_EMAIL_FROM || "Ace Global <notifications@updates.aceglobal.ai>";
   const appUrl = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
   const subject = `Progress update: ${milestone}`;
 
