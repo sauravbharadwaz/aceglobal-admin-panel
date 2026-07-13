@@ -15,10 +15,12 @@ import "server-only";
 export async function sendProgressEmail(
   to: string | null | undefined,
   milestone: string,
-): Promise<void> {
+): Promise<{ ok: boolean; error?: string }> {
   const key = process.env.RESEND_API_KEY;
   const recipient = (to ?? "").trim();
-  if (!key || !recipient || !milestone) return;
+  if (!milestone) return { ok: false };
+  if (!key) return { ok: false, error: "Email isn't set up: RESEND_API_KEY is missing on this deployment." };
+  if (!recipient) return { ok: false, error: "No email address on file for this client." };
 
   const from = process.env.NOTIFY_EMAIL_FROM || "Ace Global <updates@aceglobal.ai>";
   const appUrl = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
@@ -39,7 +41,7 @@ export async function sendProgressEmail(
   </div>`;
 
   try {
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
@@ -47,8 +49,19 @@ export async function sendProgressEmail(
       },
       body: JSON.stringify({ from, to: recipient, subject, html }),
     });
-  } catch {
-    /* best-effort: the in-app notification already covers the update */
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const body = (await res.json()) as { message?: string; name?: string };
+        detail = body.message || body.name || "";
+      } catch {
+        /* ignore parse failure */
+      }
+      return { ok: false, error: `Resend ${res.status}: ${detail || res.statusText}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Email send failed." };
   }
 }
 

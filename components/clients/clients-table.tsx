@@ -111,6 +111,7 @@ export function ClientsTable({
         toast.error(res.error);
       } else {
         toast.success("Client added");
+        if (res.warning) toast.warning(`Client email not sent — ${res.warning}`);
         setDialogOpen(false);
       }
     });

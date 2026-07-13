@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { stageLabelsForService, type OnboardingStatus } from "@/lib/types";
 import { sendProgressEmail } from "@/lib/notify";
 
-type Result = { error: string | null };
+type Result = { error: string | null; warning?: string | null };
 
 export async function updateOnboardingStatus(
   id: string,
@@ -46,6 +46,7 @@ export async function updateFilingStage(
   // corrections). Prefer the submission's user; fall back to the linked client's
   // portal user so it still fires for admin-created engagements.
   const prev = Number(sub?.filing_stage ?? 0);
+  let warning: string | null = null;
   if (s > prev) {
     let userId = (sub?.user_id as string | null) ?? null;
     let email = (sub?.email as string | null) ?? null;
@@ -68,12 +69,13 @@ export async function updateFilingStage(
           body: `Good news — your application has moved forward to: ${label}.`,
         });
       }
-      await sendProgressEmail(email, label);
+      const emailed = await sendProgressEmail(email, label);
+      if (!emailed.ok) warning = emailed.error ?? null;
     }
   }
 
   revalidatePath("/onboarding");
-  return { error: null };
+  return { error: null, warning };
 }
 
 export async function sendNotification(

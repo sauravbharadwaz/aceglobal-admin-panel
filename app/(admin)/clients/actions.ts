@@ -12,7 +12,7 @@ import {
 } from "@/lib/types";
 import { sendProgressEmail } from "@/lib/notify";
 
-type Result = { error: string | null };
+type Result = { error: string | null; warning?: string | null };
 
 /** Where the client dashboard lives. Their invite email links here. */
 const APP_URL = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
@@ -66,11 +66,11 @@ async function notifyStageAdvance(
   prevStage: number,
   nextStage: number,
   service: OnboardingService,
-): Promise<void> {
+): Promise<string | null> {
   try {
-    if (nextStage <= prevStage) return;
+    if (nextStage <= prevStage) return null;
     const label = stageLabelsForService(service)[nextStage];
-    if (!label) return;
+    if (!label) return null;
     // Resolve the client's portal user (for the in-app ping) + email (for Resend).
     const { data } = await supabase
       .from("clients")
@@ -86,9 +86,11 @@ async function notifyStageAdvance(
         body: `Good news — your application has moved forward to: ${label}.`,
       });
     }
-    await sendProgressEmail(client?.email, label);
+    const emailed = await sendProgressEmail(client?.email, label);
+    return emailed.ok ? null : (emailed.error ?? null);
   } catch {
     /* non-fatal: the stage was already saved */
+    return null;
   }
 }
 
@@ -97,8 +99,8 @@ async function syncEngagement(
   clientId: string,
   client: ClientValues,
   engagement: EngagementValues,
-): Promise<string | null> {
-  if (!engagement.service) return null;
+): Promise<{ error: string | null; warning: string | null }> {
+  if (!engagement.service) return { error: null, warning: null };
 
   const { data: existing } = await supabase
     .from("onboarding_submissions")
@@ -125,9 +127,9 @@ async function syncEngagement(
       .from("onboarding_submissions")
       .update(payload)
       .eq("id", existing.id);
-    if (error) return error.message;
+    if (error) return { error: error.message, warning: null };
     const ex = existing as { filing_stage?: number | null; user_id?: string | null };
-    await notifyStageAdvance(
+    const warning = await notifyStageAdvance(
       supabase,
       clientId,
       ex.user_id ?? null,
@@ -135,14 +137,14 @@ async function syncEngagement(
       Number(engagement.filing_stage ?? 0),
       engagement.service,
     );
-    return null;
+    return { error: null, warning };
   }
 
   const { error } = await supabase.from("onboarding_submissions").insert(payload);
-  if (error) return error.message;
+  if (error) return { error: error.message, warning: null };
   // First-time engagement (admin-created client, no prior submission): treat as a
   // move from stage 0 so setting a real milestone still notifies + emails.
-  await notifyStageAdvance(
+  const warning = await notifyStageAdvance(
     supabase,
     clientId,
     null,
@@ -150,7 +152,7 @@ async function syncEngagement(
     Number(engagement.filing_stage ?? 0),
     engagement.service,
   );
-  return null;
+  return { error: null, warning };
 }
 
 /**
@@ -227,15 +229,15 @@ export async function createClientRecord(formData: FormData): Promise<Result> {
     .single();
   if (error) return { error: error.message };
 
-  const engErr = await syncEngagement(supabase, data.id, values, engagement);
-  if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
+  const eng = await syncEngagement(supabase, data.id, values, engagement);
+  if (eng.error) return { error: `Client saved, but the dashboard engagement failed: ${eng.error}` };
 
   const pwErr = await provisionClientLogin(data.id, values.email, password);
   if (pwErr) return { error: `Client saved, but the login failed: ${pwErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
-  return { error: null };
+  return { error: null, warning: eng.warning };
 }
 
 export async function updateClientRecord(
@@ -251,15 +253,15 @@ export async function updateClientRecord(
   const { error } = await supabase.from("clients").update(values).eq("id", id);
   if (error) return { error: error.message };
 
-  const engErr = await syncEngagement(supabase, id, values, engagement);
-  if (engErr) return { error: `Client saved, but the dashboard engagement failed: ${engErr}` };
+  const eng = await syncEngagement(supabase, id, values, engagement);
+  if (eng.error) return { error: `Client saved, but the dashboard engagement failed: ${eng.error}` };
 
   const pwErr = await provisionClientLogin(id, values.email, password);
   if (pwErr) return { error: `Client saved, but the login failed: ${pwErr}` };
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
-  return { error: null };
+  return { error: null, warning: eng.warning };
 }
 
 /**

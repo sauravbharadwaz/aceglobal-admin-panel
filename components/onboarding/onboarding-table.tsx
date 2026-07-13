@@ -183,7 +183,10 @@ export function OnboardingTable({
     startTransition(async () => {
       const res = await updateFilingStage(id, stage);
       if (res.error) toast.error(res.error);
-      else toast.success("Filing stage updated — the client's dashboard will reflect it.");
+      else {
+        toast.success("Filing stage updated — the client's dashboard will reflect it.");
+        if (res.warning) toast.warning(`Client email not sent — ${res.warning}`);
+      }
     });
   }
 

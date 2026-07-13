@@ -224,7 +224,10 @@ export function ClientProfile({
     startTransition(async () => {
       const res = await updateClientRecord(client.id, formData);
       if (res.error) toast.error(res.error);
-      else toast.success("Client updated");
+      else {
+        toast.success("Client updated");
+        if (res.warning) toast.warning(`Client email not sent — ${res.warning}`);
+      }
     });
   }
 
