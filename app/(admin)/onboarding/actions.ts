@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import type { OnboardingStatus } from "@/lib/types";
+import { stageLabelsForService, type OnboardingStatus } from "@/lib/types";
 
 type Result = { error: string | null };
 
@@ -26,11 +26,35 @@ export async function updateFilingStage(
 ): Promise<Result> {
   const s = Math.max(0, Math.min(5, Math.round(Number(stage) || 0)));
   const supabase = await createClient();
+
+  // Read the current stage + who to notify + which milestone labels apply,
+  // so a forward move on the client's progress bar pings them by name.
+  const { data: sub } = await supabase
+    .from("onboarding_submissions")
+    .select("filing_stage, user_id, service")
+    .eq("id", id)
+    .maybeSingle();
+
   const { error } = await supabase
     .from("onboarding_submissions")
     .update({ filing_stage: s })
     .eq("id", id);
   if (error) return { error: error.message };
+
+  // Notify the client only when the progress bar moves forward (not on backward
+  // corrections), and only when the submission is linked to a signed-in user.
+  const prev = Number(sub?.filing_stage ?? 0);
+  if (sub?.user_id && s > prev) {
+    const label = stageLabelsForService(sub.service)[s];
+    if (label) {
+      await supabase.from("notifications").insert({
+        user_id: sub.user_id,
+        title: `Progress update: ${label}`,
+        body: `Good news — your application has moved forward to: ${label}.`,
+      });
+    }
+  }
+
   revalidatePath("/onboarding");
   return { error: null };
 }
