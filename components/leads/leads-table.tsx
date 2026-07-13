@@ -147,7 +147,7 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
         </Dialog>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl glass">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40">

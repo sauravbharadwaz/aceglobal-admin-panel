@@ -134,7 +134,7 @@ export function ClientsTable({
         </Button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border bg-card">
+      <div className="overflow-hidden rounded-xl glass">
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40">
