@@ -36,6 +36,7 @@ import {
   type Client,
   type ClientDocument,
   type ClientEngagement,
+  type ClientProfileHints,
   type ClientStatus,
   type Expert,
   type Invoice,
@@ -123,16 +124,20 @@ function LockedField({
   id,
   label,
   value,
+  suggestion,
   placeholder,
   className,
 }: {
   id: string;
   label: string;
   value: string | null | undefined;
+  /** What the client put on their own onboarding form, if anything. */
+  suggestion?: string | null;
   placeholder?: string;
   className?: string;
 }) {
   const saved = (value ?? "").trim();
+  const suggested = (suggestion ?? "").trim();
   return (
     <div className={cn("grid gap-2", className)}>
       <Label htmlFor={saved ? undefined : id} className={cn(saved && "text-muted-foreground")}>
@@ -147,7 +152,22 @@ function LockedField({
           <span className="truncate">{saved}</span>
         </div>
       ) : (
-        <Input id={id} name={id} autoComplete="off" placeholder={placeholder} />
+        <>
+          {/* Prefilled from their application but NOT stored yet — these fields
+              lock on write, so a human confirms the value by saving. */}
+          <Input
+            id={id}
+            name={id}
+            autoComplete="off"
+            placeholder={placeholder}
+            defaultValue={suggested}
+          />
+          {suggested && (
+            <p className="text-xs text-muted-foreground">
+              From their application — check it, then save to lock it in.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -163,6 +183,7 @@ function formatBytes(size: number | null | undefined): string {
 export function ClientProfile({
   client,
   engagements,
+  hints = {},
   documents,
   invoices,
   experts = [],
@@ -170,6 +191,8 @@ export function ClientProfile({
   client: Client;
   /** Every service this client has, newest first. */
   engagements: ClientEngagement[];
+  /** Values from their onboarding forms, offered as prefill. */
+  hints?: ClientProfileHints;
   documents: ClientDocument[];
   invoices: Invoice[];
   experts?: Expert[];
@@ -498,7 +521,13 @@ export function ClientProfile({
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" name="phone" defaultValue={client.phone ?? ""} />
+                    {/* Falls back to the number on their application when we have
+                        none on file. Editable and not saved until you submit. */}
+                    <Input
+                      id="phone"
+                      name="phone"
+                      defaultValue={client.phone ?? hints.phone ?? ""}
+                    />
                   </div>
                   <div className="grid gap-2 sm:col-span-2">
                     <Label htmlFor="company">Company</Label>
@@ -508,7 +537,7 @@ export function ClientProfile({
                     <Label htmlFor="status">Status</Label>
                     <Select name="status" defaultValue={client.status}>
                       <SelectTrigger id="status">
-                        <SelectValue />
+                        <SelectValue>{(v: unknown) => titleCase(String(v ?? ""))}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {CLIENT_STATUSES.map((s) => (
@@ -523,7 +552,7 @@ export function ClientProfile({
                     <Label htmlFor="plan">Plan</Label>
                     <Select name="plan" defaultValue={client.plan ?? "starter"}>
                       <SelectTrigger id="plan">
-                        <SelectValue />
+                        <SelectValue>{(v: unknown) => titleCase(String(v ?? ""))}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {PLANS.map((p) => (
@@ -543,7 +572,11 @@ export function ClientProfile({
                     <input type="hidden" name="owner" value={ownerValue === UNASSIGNED ? "" : ownerValue} />
                     <Select value={ownerValue} onValueChange={(v) => setOwnerValue(String(v))}>
                       <SelectTrigger id="owner">
-                        <SelectValue />
+                        {/* SelectValue renders the raw value, which would print
+                            the UNASSIGNED sentinel at the user. */}
+                        <SelectValue>
+                          {(v: unknown) => (v === UNASSIGNED ? "Unassigned" : String(v ?? ""))}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
@@ -570,12 +603,14 @@ export function ClientProfile({
                         id="contact_person"
                         label="Contact person"
                         value={client.contact_person}
+                        suggestion={hints.contact_person}
                         placeholder="Full name"
                       />
                       <LockedField
                         id="ein"
                         label="EIN"
                         value={client.ein}
+                        suggestion={hints.ein}
                         placeholder="12-3456789"
                       />
                       <LockedField
@@ -607,6 +642,7 @@ export function ClientProfile({
                         id="business_address"
                         label="Business physical address"
                         value={client.business_address}
+                        suggestion={hints.business_address}
                         placeholder="Street, city, state, ZIP"
                         className="sm:col-span-2"
                       />

@@ -229,6 +229,19 @@ export interface ClientDocument {
 }
 
 /**
+ * Values the client already gave us on an onboarding form, offered as prefill
+ * for the admin profile. Suggestions only — nothing is stored until a staff
+ * member reviews it and saves, because these fields lock once written.
+ */
+export interface ClientProfileHints {
+  contact_person?: string | null;
+  ein?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  business_address?: string | null;
+}
+
+/**
  * One service a client has with us — backed by a single onboarding_submissions
  * row. A client can hold several (e.g. bookkeeping, then a later company
  * formation raised from their dashboard), so these come back as a list.
@@ -243,6 +256,8 @@ export interface ClientEngagement {
   created_at?: string | null;
   /** False when the row was matched by login (user_id) rather than client_id. */
   linked?: boolean;
+  /** What this request's form already told us about the client. */
+  hints?: ClientProfileHints;
 }
 
 export const LEAD_STATUSES: LeadStatus[] = [

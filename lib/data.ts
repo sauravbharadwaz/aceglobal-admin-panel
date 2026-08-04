@@ -109,6 +109,47 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     details?: Record<string, unknown>;
     created_at?: string | null;
   };
+  /**
+   * Pull the fields the client already filled in on their onboarding form so the
+   * admin profile can offer them instead of asking staff to retype what we have.
+   * Formation forms carry the owner, phone and address; the tax and bookkeeping
+   * forms carry the EIN.
+   */
+  const text = (v: unknown) => (v == null ? "" : String(v).trim());
+  const extractHints = (details?: Record<string, unknown>) => {
+    if (!details) return {};
+    const address = [
+      details.addrLine1,
+      details.addrLine2,
+      details.addrCity,
+      details.addrState,
+      details.addrZip,
+      details.addrCountry,
+    ]
+      .map(text)
+      .filter(Boolean)
+      .join(", ");
+    // `mainOwner` is an INDEX into shList, not a name — the formation form uses
+    // it to mark which shareholder is the primary one. Resolve it to the person.
+    const shList = Array.isArray(details.shList)
+      ? (details.shList as Array<Record<string, unknown>>)
+      : [];
+    const ownerIndex = Number(details.mainOwner);
+    const owner =
+      shList[Number.isFinite(ownerIndex) ? ownerIndex : 0] ?? shList[0] ?? null;
+    const manager = (details.manager ?? null) as Record<string, unknown> | null;
+    const personName = (p: Record<string, unknown> | null) =>
+      p ? [text(p.first), text(p.last)].filter(Boolean).join(" ") : "";
+
+    return {
+      contact_person: personName(owner) || personName(manager) || null,
+      ein: text(details.ein) || null,
+      phone: text(details.bizPhone) || null,
+      email: text(details.bizEmail) || null,
+      business_address: address || null,
+    };
+  };
+
   const extractDocs = (details?: Record<string, unknown>) => {
     const raw = (details?.documents as unknown) ?? [];
     return Array.isArray(raw)
@@ -135,6 +176,7 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
       documents: extractDocs(row.details),
       created_at: row.created_at ?? null,
       linked: !!row.client_id,
+      hints: extractHints(row.details),
     });
   }
   return map;
