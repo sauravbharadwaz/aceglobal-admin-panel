@@ -152,7 +152,10 @@ export const FILING_STAGES: string[] = [
   "Registered agent set up",
   "State filing submitted",
   "EIN obtained",
-  "Complete",
+  // Same milestone the client sees as the last step on their dashboard
+  // (FILING_LABELS in app.aceglobal.ai/dashboard.html). Stage 5 is the finish
+  // line — the operating agreement is the last deliverable.
+  "Operating agreement",
 ];
 
 // Register-New-Tax-Account milestones (reuses filing_stage; index = value 0..4).

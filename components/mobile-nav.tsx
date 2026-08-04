@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState, useSyncExternalStore, useTransition } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -9,19 +9,29 @@ import { cn } from "@/lib/utils";
 import { NAV_ITEMS, ADMIN_ITEMS } from "@/lib/nav";
 import { signOut } from "@/app/auth/actions";
 
+// Module-level so the store identity is stable across renders. Nothing ever
+// changes, so the subscribe callback is a no-op unsubscribe.
+const subscribeNothing = () => () => {};
+const onClient = () => true;
+const onServer = () => false;
+
 export function MobileNav({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const [isSigningOut, startTransition] = useTransition();
   const pathname = usePathname();
 
-  // Portal target is only available on the client.
-  useEffect(() => setMounted(true), []);
+  // Portal target is only available on the client: false through SSR and the
+  // hydration pass, true afterwards, without a render-then-setState round trip.
+  const mounted = useSyncExternalStore(subscribeNothing, onClient, onServer);
 
-  // Close the drawer whenever the route changes.
-  useEffect(() => {
-    setOpen(false);
-  }, [pathname]);
+  // Close the drawer when the route changes under it — browser back/forward,
+  // since every link in the drawer already closes it on click. Adjusting state
+  // during render is React's documented alternative to a setState effect.
+  const [drawerRoute, setDrawerRoute] = useState(pathname);
+  if (drawerRoute !== pathname) {
+    setDrawerRoute(pathname);
+    if (open) setOpen(false);
+  }
 
   // Lock body scroll + close on Escape while open.
   useEffect(() => {
