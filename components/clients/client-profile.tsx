@@ -36,6 +36,7 @@ import {
   type Client,
   type ClientDocument,
   type ClientEngagement,
+  type ClientProfileHints,
   type ClientStatus,
   type Expert,
   type Invoice,
@@ -123,16 +124,20 @@ function LockedField({
   id,
   label,
   value,
+  suggestion,
   placeholder,
   className,
 }: {
   id: string;
   label: string;
   value: string | null | undefined;
+  /** What the client put on their own onboarding form, if anything. */
+  suggestion?: string | null;
   placeholder?: string;
   className?: string;
 }) {
   const saved = (value ?? "").trim();
+  const suggested = (suggestion ?? "").trim();
   return (
     <div className={cn("grid gap-2", className)}>
       <Label htmlFor={saved ? undefined : id} className={cn(saved && "text-muted-foreground")}>
@@ -147,7 +152,22 @@ function LockedField({
           <span className="truncate">{saved}</span>
         </div>
       ) : (
-        <Input id={id} name={id} autoComplete="off" placeholder={placeholder} />
+        <>
+          {/* Prefilled from their application but NOT stored yet — these fields
+              lock on write, so a human confirms the value by saving. */}
+          <Input
+            id={id}
+            name={id}
+            autoComplete="off"
+            placeholder={placeholder}
+            defaultValue={suggested}
+          />
+          {suggested && (
+            <p className="text-xs text-muted-foreground">
+              From their application — check it, then save to lock it in.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -163,6 +183,7 @@ function formatBytes(size: number | null | undefined): string {
 export function ClientProfile({
   client,
   engagements,
+  hints = {},
   documents,
   invoices,
   experts = [],
@@ -170,6 +191,8 @@ export function ClientProfile({
   client: Client;
   /** Every service this client has, newest first. */
   engagements: ClientEngagement[];
+  /** Values from their onboarding forms, offered as prefill. */
+  hints?: ClientProfileHints;
   documents: ClientDocument[];
   invoices: Invoice[];
   experts?: Expert[];
@@ -253,6 +276,20 @@ export function ClientProfile({
       if (res.error) toast.error(res.error);
       else toast.success("Document removed");
     });
+  }
+
+  /** jsPDF is heavy, so the builder is only pulled in on click. */
+  async function handleDownloadApplication(engagement: ClientEngagement) {
+    if (!engagement.row) {
+      toast.error("This request has no stored application.");
+      return;
+    }
+    try {
+      const mod = await import("@/lib/application-pdf");
+      mod.downloadSubmissionPDF(engagement.row);
+    } catch {
+      toast.error("Could not generate the application PDF.");
+    }
   }
 
   function handleUpload(formData: FormData) {
@@ -411,7 +448,10 @@ export function ClientProfile({
           <TabsList className="w-max">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="documents">Documents ({documents.length})</TabsTrigger>
+            {/* Applications count too — they're downloadable documents here. */}
+            <TabsTrigger value="documents">
+              Documents ({documents.length + engagements.length})
+            </TabsTrigger>
             <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
           </TabsList>
         </div>
@@ -498,7 +538,13 @@ export function ClientProfile({
                   </div>
                   <div className="grid gap-2">
                     <Label htmlFor="phone">Phone</Label>
-                    <Input id="phone" name="phone" defaultValue={client.phone ?? ""} />
+                    {/* Falls back to the number on their application when we have
+                        none on file. Editable and not saved until you submit. */}
+                    <Input
+                      id="phone"
+                      name="phone"
+                      defaultValue={client.phone ?? hints.phone ?? ""}
+                    />
                   </div>
                   <div className="grid gap-2 sm:col-span-2">
                     <Label htmlFor="company">Company</Label>
@@ -508,7 +554,7 @@ export function ClientProfile({
                     <Label htmlFor="status">Status</Label>
                     <Select name="status" defaultValue={client.status}>
                       <SelectTrigger id="status">
-                        <SelectValue />
+                        <SelectValue>{(v: unknown) => titleCase(String(v ?? ""))}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {CLIENT_STATUSES.map((s) => (
@@ -523,7 +569,7 @@ export function ClientProfile({
                     <Label htmlFor="plan">Plan</Label>
                     <Select name="plan" defaultValue={client.plan ?? "starter"}>
                       <SelectTrigger id="plan">
-                        <SelectValue />
+                        <SelectValue>{(v: unknown) => titleCase(String(v ?? ""))}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         {PLANS.map((p) => (
@@ -543,7 +589,11 @@ export function ClientProfile({
                     <input type="hidden" name="owner" value={ownerValue === UNASSIGNED ? "" : ownerValue} />
                     <Select value={ownerValue} onValueChange={(v) => setOwnerValue(String(v))}>
                       <SelectTrigger id="owner">
-                        <SelectValue />
+                        {/* SelectValue renders the raw value, which would print
+                            the UNASSIGNED sentinel at the user. */}
+                        <SelectValue>
+                          {(v: unknown) => (v === UNASSIGNED ? "Unassigned" : String(v ?? ""))}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value={UNASSIGNED}>Unassigned</SelectItem>
@@ -570,12 +620,14 @@ export function ClientProfile({
                         id="contact_person"
                         label="Contact person"
                         value={client.contact_person}
+                        suggestion={hints.contact_person}
                         placeholder="Full name"
                       />
                       <LockedField
                         id="ein"
                         label="EIN"
                         value={client.ein}
+                        suggestion={hints.ein}
                         placeholder="12-3456789"
                       />
                       <LockedField
@@ -607,6 +659,7 @@ export function ClientProfile({
                         id="business_address"
                         label="Business physical address"
                         value={client.business_address}
+                        suggestion={hints.business_address}
                         placeholder="Street, city, state, ZIP"
                         className="sm:col-span-2"
                       />
@@ -773,8 +826,48 @@ export function ClientProfile({
                 </Button>
               </form>
 
+              {/* What the client filled in on each onboarding form. Not an
+                  uploaded file — generated on demand from the stored answers,
+                  the same document the client can download themselves. */}
+              {engagements.length > 0 && (
+                <div className="grid gap-2">
+                  {engagements.map((e) => (
+                    <div
+                      key={`app-${e.id}`}
+                      className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm"
+                    >
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <span className="block truncate">
+                          {ONBOARDING_SERVICE_LABELS[e.service]} application
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Their submitted answers
+                          {e.created_at ? ` · ${formatDate(e.created_at)}` : ""}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => handleDownloadApplication(e)}
+                        disabled={isPending || !e.row}
+                        aria-label={`Download ${ONBOARDING_SERVICE_LABELS[e.service]} application`}
+                        title="Download as PDF"
+                      >
+                        <Download className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {documents.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">No documents yet.</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {engagements.length
+                    ? "No uploaded files yet — the applications above are generated from their answers."
+                    : "No documents yet."}
+                </p>
               ) : (
                 <div className="grid gap-2">
                   {documents.map((doc) => (

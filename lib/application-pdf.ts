@@ -183,3 +183,112 @@ export function downloadApplicationPDF(row: OnboardingSubmission): void {
   const safe = company.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "application";
   doc.save(`Ace-Global-Application-${safe}.pdf`);
 }
+
+const SERVICE_TITLES: Record<string, string> = {
+  bookkeeping: "Bookkeeping Request",
+  "corporate-tax": "Corporate Tax Request",
+  "tax-account": "Tax Account Registration",
+};
+
+/**
+ * Bookkeeping, corporate-tax and tax-account forms have no fixed shape — each
+ * captures its own set of answers — so render whatever the client actually
+ * submitted rather than forcing it through the formation layout, which would
+ * come out mostly blank.
+ */
+function downloadRequestPDF(row: OnboardingSubmission): void {
+  const d = (row.details || {}) as Details;
+  const doc = new jsPDF({ unit: "pt", format: "letter" });
+  const PW = doc.internal.pageSize.getWidth();
+  const PH = doc.internal.pageSize.getHeight();
+  const M = 48, CW = PW - M * 2;
+  const ink: [number, number, number] = [15, 27, 76];
+  const muted: [number, number, number] = [120, 115, 160];
+  const faint: [number, number, number] = [168, 164, 200];
+  let y = 0;
+
+  const ensure = (h: number) => { if (y + h > PH - M) { doc.addPage(); y = M; } };
+  const kvRow = (k: string, v: unknown) => {
+    const val = v == null || String(v).trim() === "" ? "—" : String(v);
+    const keyW = 165, valX = M + keyW + 12, valW = CW - keyW - 12;
+    doc.setFontSize(10.5); doc.setFont("helvetica", "normal");
+    const lines = doc.splitTextToSize(val, valW);
+    const h = Math.max(17, lines.length * 13 + 5);
+    ensure(h);
+    doc.setTextColor(...muted); doc.setFont("helvetica", "normal");
+    doc.text(k, M, y + 11, { maxWidth: keyW });
+    doc.setTextColor(...ink); doc.setFont("helvetica", "bold");
+    doc.text(lines, valX, y + 11);
+    doc.setDrawColor(238, 236, 247); doc.setLineWidth(0.5); doc.line(M, y + h - 2, M + CW, y + h - 2);
+    y += h;
+  };
+  // "bizType" → "Biz type"; leading underscores mark internal bookkeeping fields.
+  const label = (k: string) =>
+    k.replace(/^_/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+  const show = (v: unknown): string => {
+    if (Array.isArray(v)) return v.map(show).filter(Boolean).join(", ");
+    if (v && typeof v === "object") {
+      return Object.entries(v as Record<string, unknown>)
+        .filter(([, x]) => String(x ?? "").trim() !== "")
+        .map(([k, x]) => `${label(k)}: ${show(x)}`)
+        .join(" · ");
+    }
+    if (v === true) return "Yes";
+    if (v === false) return "No";
+    return v == null ? "" : String(v);
+  };
+
+  const title = SERVICE_TITLES[row.service] || "Service Request";
+  const company = row.company || str(d.business) || "Client";
+
+  doc.setFillColor(75, 59, 184); doc.rect(0, 0, PW, 92, "F");
+  doc.setTextColor(255, 255, 255); doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+  doc.text(title, M, 42);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(228, 224, 250);
+  doc.text(doc.splitTextToSize(company, CW - 120), M, 64);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(13); doc.setTextColor(255, 255, 255);
+  doc.text("Ace Global", PW - M, 42, { align: "right" });
+  y = 92 + 24;
+
+  const submitted = row.created_at
+    ? new Date(row.created_at).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })
+    : "";
+  doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...muted);
+  doc.text([submitted ? "Submitted: " + submitted : "", row.email ? "Contact: " + row.email : ""].filter(Boolean).join("     "), M, y);
+  y += 10;
+
+  y += 14;
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...faint);
+  doc.text("SUBMITTED DETAILS", M, y + 8); y += 18;
+
+  // `documents` is the uploaded-file manifest, listed separately below.
+  const keys = Object.keys(d).filter((k) => k !== "documents" && show(d[k]).trim() !== "");
+  if (!keys.length) kvRow("Details", "");
+  for (const k of keys) kvRow(label(k), show(d[k]));
+
+  const files = Array.isArray(d.documents) ? (d.documents as Array<{ name?: string }>) : [];
+  if (files.length) {
+    y += 14;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...faint);
+    doc.text("ATTACHED FILES", M, y + 8); y += 18;
+    files.forEach((f, i) => kvRow(`File ${i + 1}`, f?.name || "document"));
+  }
+
+  const pages = doc.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...faint);
+    doc.text(`Ace Global · ${title}`, M, PH - 22);
+    doc.text(`Page ${i} of ${pages}`, PW - M, PH - 22, { align: "right" });
+  }
+
+  const safe = company.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "") || "request";
+  doc.save(`Ace-Global-${title.replace(/\s+/g, "-")}-${safe}.pdf`);
+}
+
+/** Any service request as a PDF — the formation layout where it fits, a plain
+ *  rendering of the submitted answers everywhere else. */
+export function downloadSubmissionPDF(row: OnboardingSubmission): void {
+  if (row.service === "company-formation") downloadApplicationPDF(row);
+  else downloadRequestPDF(row);
+}

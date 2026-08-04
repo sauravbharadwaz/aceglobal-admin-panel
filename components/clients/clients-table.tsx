@@ -11,7 +11,6 @@ import {
   ONBOARDING_SERVICE_LABELS,
   stageLabelsForService,
   type Client,
-  type ClientEngagement,
   type Expert,
   type PortalStatus,
 } from "@/lib/types";
@@ -67,11 +66,9 @@ function PortalBadge({ status }: { status: PortalStatus }) {
 
 export function ClientsTable({
   clients,
-  engagements,
   experts = [],
 }: {
   clients: Client[];
-  engagements: Record<string, ClientEngagement[]>;
   /** Team members clients can be assigned to (account managers). */
   experts?: Expert[];
 }) {
