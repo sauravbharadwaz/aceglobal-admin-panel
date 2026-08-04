@@ -149,9 +149,9 @@ export interface SubmissionClient {
 export const FILING_STAGES: string[] = [
   "Not started",
   "Name reserved",
-  "Registered agent set up",
   "State filing submitted",
   "EIN obtained",
+  "Registered agent set up",
   // Same milestone the client sees as the last step on their dashboard
   // (FILING_LABELS in app.aceglobal.ai/dashboard.html). Stage 5 is the finish
   // line — the operating agreement is the last deliverable.
