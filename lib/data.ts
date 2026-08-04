@@ -72,17 +72,19 @@ export function getClients(): Promise<Client[]> {
 }
 
 /**
- * Map of client_id → the client's dashboard engagement (service / filing stage /
- * payment), used to prefill the client editor and show portal state. Returns an
+ * Map of client_id → every service that client has with us (one entry per
+ * onboarding_submissions row), newest first. A client who raises a second
+ * request from their dashboard gets a second entry here rather than having it
+ * collapse into the first — that request is theirs, not a fresh lead. Returns an
  * empty map if the columns/table aren't migrated yet.
  */
-export async function getClientEngagements(): Promise<Record<string, ClientEngagement>> {
+export async function getClientEngagements(): Promise<Record<string, ClientEngagement[]>> {
   if (!isSupabaseConfigured) return {};
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("onboarding_submissions")
-    .select("id, client_id, user_id, service, filing_stage, payment_status, details")
-    .order("created_at", { ascending: true });
+    .select("id, created_at, client_id, user_id, email, service, filing_stage, payment_status, details")
+    .order("created_at", { ascending: false });
   if (error) {
     if (isMissingTable(error)) return {};
     // A missing client_id column also degrades gracefully.
@@ -90,13 +92,23 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     throw new Error(error.message);
   }
 
-  // Resolve app-submitted requests (client_id NULL but user_id set) back to the
-  // client via their login, so their uploaded documents show up in the editor.
+  // Resolve app-submitted requests (client_id NULL) back to their client — by
+  // login first, then by email for a client who has no portal login linked. Same
+  // rule the Onboarding page uses, so both views agree on whose request it is.
   const clients = await getClients();
   const userToClient: Record<string, string> = {};
-  for (const c of clients) if (c.user_id) userToClient[c.user_id] = c.id;
+  const emailToClient: Record<string, string> = {};
+  for (const c of clients) {
+    if (c.user_id) userToClient[c.user_id] = c.id;
+    if (c.email) emailToClient[c.email.toLowerCase()] = c.id;
+  }
 
-  type Row = ClientEngagement & { user_id?: string | null; details?: Record<string, unknown> };
+  type Row = ClientEngagement & {
+    user_id?: string | null;
+    email?: string | null;
+    details?: Record<string, unknown>;
+    created_at?: string | null;
+  };
   const extractDocs = (details?: Record<string, unknown>) => {
     const raw = (details?.documents as unknown) ?? [];
     return Array.isArray(raw)
@@ -107,37 +119,24 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
       : [];
   };
 
-  const map: Record<string, ClientEngagement & { _linked?: boolean }> = {};
+  const map: Record<string, ClientEngagement[]> = {};
   for (const row of (data as Row[]) ?? []) {
-    const clientId = row.client_id ?? (row.user_id ? userToClient[row.user_id] : null);
+    const clientId =
+      row.client_id ??
+      (row.user_id ? userToClient[row.user_id] : null) ??
+      (row.email ? emailToClient[row.email.toLowerCase()] : null);
     if (!clientId) continue;
-    const docs = extractDocs(row.details);
-    const existing = map[clientId];
-    if (!existing) {
-      // earliest row backs the engagement fields (ascending order above)
-      map[clientId] = {
-        id: row.id,
-        client_id: clientId,
-        service: row.service,
-        filing_stage: row.filing_stage,
-        payment_status: row.payment_status,
-        documents: docs,
-        _linked: !!row.client_id,
-      };
-    } else {
-      // aggregate documents from every row belonging to this client
-      existing.documents.push(...docs);
-      // prefer a client_id-linked row (the admin-managed one) for the tracked fields
-      if (row.client_id && !existing._linked) {
-        existing.id = row.id;
-        existing.service = row.service;
-        existing.filing_stage = row.filing_stage;
-        existing.payment_status = row.payment_status;
-        existing._linked = true;
-      }
-    }
+    (map[clientId] ??= []).push({
+      id: row.id,
+      client_id: clientId,
+      service: row.service,
+      filing_stage: row.filing_stage,
+      payment_status: row.payment_status,
+      documents: extractDocs(row.details),
+      created_at: row.created_at ?? null,
+      linked: !!row.client_id,
+    });
   }
-  for (const k of Object.keys(map)) delete map[k]._linked;
   return map;
 }
 

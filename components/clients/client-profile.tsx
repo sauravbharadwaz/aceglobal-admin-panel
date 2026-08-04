@@ -7,6 +7,7 @@ import {
   Download,
   FileText,
   KeyRound,
+  Lock,
   Plus,
   Send,
   ShieldOff,
@@ -112,6 +113,46 @@ function PortalBadge({ status }: { status: PortalStatus }) {
   );
 }
 
+/**
+ * A write-once client detail (EIN, banking, …). Blank → a normal input. Once a
+ * value has been saved it renders as locked read-only text and posts nothing;
+ * the server drops changes to a set field too, so this can't be worked around
+ * from a stale tab.
+ */
+function LockedField({
+  id,
+  label,
+  value,
+  placeholder,
+  className,
+}: {
+  id: string;
+  label: string;
+  value: string | null | undefined;
+  placeholder?: string;
+  className?: string;
+}) {
+  const saved = (value ?? "").trim();
+  return (
+    <div className={cn("grid gap-2", className)}>
+      <Label htmlFor={saved ? undefined : id} className={cn(saved && "text-muted-foreground")}>
+        {label}
+      </Label>
+      {saved ? (
+        <div
+          className="flex h-8 items-center gap-2 rounded-lg border border-dashed bg-muted/60 px-2.5 py-1 text-base md:text-sm"
+          title="Locked — this can't be changed once saved"
+        >
+          <Lock className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{saved}</span>
+        </div>
+      ) : (
+        <Input id={id} name={id} autoComplete="off" placeholder={placeholder} />
+      )}
+    </div>
+  );
+}
+
 function formatBytes(size: number | null | undefined): string {
   if (!size || size <= 0) return "";
   if (size < 1024) return `${size} B`;
@@ -121,19 +162,19 @@ function formatBytes(size: number | null | undefined): string {
 
 export function ClientProfile({
   client,
-  engagement,
+  engagements,
   documents,
   invoices,
   experts = [],
 }: {
   client: Client;
-  engagement: ClientEngagement | null;
+  /** Every service this client has, newest first. */
+  engagements: ClientEngagement[];
   documents: ClientDocument[];
   invoices: Invoice[];
   experts?: Expert[];
 }) {
   const [isPending, startTransition] = useTransition();
-  const [serviceValue, setServiceValue] = useState<string>(engagement?.service ?? NO_SERVICE);
   const [ownerValue, setOwnerValue] = useState<string>(client.owner || UNASSIGNED);
   const [raiseOpen, setRaiseOpen] = useState(false);
 
@@ -147,11 +188,13 @@ export function ClientProfile({
     ]),
   ).sort((a, b) => a.localeCompare(b));
 
-  const stageLabels = stageLabelsForService(engagement?.service);
-  const stageLabel =
-    engagement && stageLabels.length
-      ? stageLabels[Math.min(engagement.filing_stage ?? 0, stageLabels.length - 1)]
-      : null;
+  /** "2. Registered agent set up" for a service that tracks progress, else null. */
+  function progressLabel(e: ClientEngagement): string | null {
+    const labels = stageLabelsForService(e.service);
+    if (!labels.length) return null;
+    const i = Math.min(e.filing_stage ?? 0, labels.length - 1);
+    return `${i}. ${labels[i]}`;
+  }
 
   function handleStatusChange(next: string) {
     if (next === client.status) return;
@@ -226,7 +269,7 @@ export function ClientProfile({
       if (res.error) toast.error(res.error);
       else {
         toast.success("Client updated");
-        if (res.warning) toast.warning(`Client email not sent — ${res.warning}`);
+        if (res.warning) toast.warning(res.warning);
       }
     });
   }
@@ -376,15 +419,33 @@ export function ClientProfile({
         {/* Overview */}
         <TabsContent value="overview" className="pt-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Card>
+            <Card className={cn(engagements.length > 1 && "sm:col-span-2")}>
               <CardHeader>
-                <CardTitle className="text-sm">Engagement</CardTitle>
+                <CardTitle className="text-sm">
+                  Services{engagements.length > 1 ? ` (${engagements.length})` : ""}
+                </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <Row k="Service" v={engagement ? ONBOARDING_SERVICE_LABELS[engagement.service] : "No dashboard"} />
-                {stageLabel && <Row k="Progress" v={`${engagement?.filing_stage ?? 0}. ${stageLabel}`} />}
-                {engagement && (
-                  <Row k="Payment" v={titleCase(engagement.payment_status ?? "pending")} />
+              <CardContent className="space-y-3 text-sm">
+                {engagements.length === 0 ? (
+                  <p className="text-muted-foreground">No dashboard service yet.</p>
+                ) : (
+                  engagements.map((e, i) => (
+                    <div
+                      key={e.id}
+                      className={cn("space-y-2", i > 0 && "border-t pt-3")}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="font-medium">{ONBOARDING_SERVICE_LABELS[e.service]}</span>
+                        {e.created_at && (
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(e.created_at)}
+                          </span>
+                        )}
+                      </div>
+                      {progressLabel(e) && <Row k="Progress" v={progressLabel(e) as string} />}
+                      <Row k="Payment" v={titleCase(e.payment_status ?? "pending")} />
+                    </div>
+                  ))
                 )}
               </CardContent>
             </Card>
@@ -495,64 +556,184 @@ export function ClientProfile({
                     </Select>
                   </div>
 
+                  {/* Optional + write-once: blank fields accept a value, saved ones lock. */}
                   <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
-                    <h4 className="mb-3 text-sm font-semibold">Client dashboard</h4>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      <div className="grid gap-2">
-                        <Label htmlFor="service">Service</Label>
-                        <Select
-                          name="service"
-                          defaultValue={engagement?.service ?? NO_SERVICE}
-                          onValueChange={(v) => setServiceValue(String(v))}
-                        >
-                          <SelectTrigger id="service">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NO_SERVICE}>— No dashboard —</SelectItem>
-                            {ONBOARDING_SERVICES.map((s) => (
-                              <SelectItem key={s} value={s}>
-                                {ONBOARDING_SERVICE_LABELS[s]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="grid gap-2">
-                        <Label htmlFor="payment_status">Payment</Label>
-                        <Select name="payment_status" defaultValue={engagement?.payment_status ?? "pending"}>
-                          <SelectTrigger id="payment_status">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="paid">Paid</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      {(() => {
-                        const labels = stageLabelsForService(serviceValue);
-                        if (!labels.length) return null;
-                        const title = serviceValue === "tax-account" ? "Registration progress" : "Formation progress";
-                        return (
-                          <div className="grid gap-2">
-                            <Label htmlFor="filing_stage">{title}</Label>
-                            <Select name="filing_stage" defaultValue={String(engagement?.filing_stage ?? 0)}>
-                              <SelectTrigger id="filing_stage">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {labels.map((label, i) => (
-                                  <SelectItem key={i} value={String(i)}>
-                                    {i}. {label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                        );
-                      })()}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-semibold">Business &amp; tax details</h4>
+                      <Lock className="size-3.5 text-muted-foreground" />
                     </div>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      All optional — but once saved, a value is locked and can&apos;t be edited here.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <LockedField
+                        id="contact_person"
+                        label="Contact person"
+                        value={client.contact_person}
+                        placeholder="Full name"
+                      />
+                      <LockedField
+                        id="ein"
+                        label="EIN"
+                        value={client.ein}
+                        placeholder="12-3456789"
+                      />
+                      <LockedField
+                        id="state_withholding_id"
+                        label="State withholding"
+                        value={client.state_withholding_id}
+                        placeholder="Account number"
+                      />
+                      <LockedField
+                        id="state_unemployment_id"
+                        label="State unemployment tax"
+                        value={client.state_unemployment_id}
+                        placeholder="Account number"
+                      />
+                      <LockedField
+                        id="eft_pin"
+                        label="EFT PIN"
+                        value={client.eft_pin}
+                        className="sm:col-span-2"
+                      />
+                      <LockedField
+                        id="billing_address"
+                        label="Billing address"
+                        value={client.billing_address}
+                        placeholder="Street, city, state, ZIP"
+                        className="sm:col-span-2"
+                      />
+                      <LockedField
+                        id="business_address"
+                        label="Business physical address"
+                        value={client.business_address}
+                        placeholder="Street, city, state, ZIP"
+                        className="sm:col-span-2"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-sm font-semibold">Banking</h4>
+                      <Lock className="size-3.5 text-muted-foreground" />
+                    </div>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      All optional — but once saved, a value is locked and can&apos;t be edited here.
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <LockedField id="bank_name" label="Bank name" value={client.bank_name} />
+                      <LockedField
+                        id="bank_account_number"
+                        label="Account number"
+                        value={client.bank_account_number}
+                      />
+                      <LockedField
+                        id="bank_routing_number"
+                        label="Routing number"
+                        value={client.bank_routing_number}
+                        placeholder="9 digits"
+                      />
+                    </div>
+                  </div>
+
+                  {/* One block per service the client holds — including requests they
+                      raised themselves from their dashboard after signing up. */}
+                  <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
+                    <h4 className="text-sm font-semibold">
+                      Services{engagements.length ? ` (${engagements.length})` : ""}
+                    </h4>
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      What this client sees on their dashboard. Moving a service forward
+                      notifies them.
+                    </p>
+
+                    {engagements.length === 0 ? (
+                      <p className="rounded-lg border border-dashed bg-background/60 px-3 py-4 text-center text-xs text-muted-foreground">
+                        No service yet — add one below to give this client a dashboard.
+                      </p>
+                    ) : (
+                      <div className="grid gap-3">
+                        {engagements.map((e) => {
+                          const labels = stageLabelsForService(e.service);
+                          const progressTitle =
+                            e.service === "tax-account" ? "Registration progress" : "Formation progress";
+                          return (
+                            <div key={e.id} className="rounded-lg border bg-background/60 p-3">
+                              <input type="hidden" name="engagement_id" value={e.id} />
+                              <div className="mb-2 flex flex-wrap items-center gap-2">
+                                <span className="text-sm font-medium">
+                                  {ONBOARDING_SERVICE_LABELS[e.service]}
+                                </span>
+                                {e.created_at && (
+                                  <span className="text-xs text-muted-foreground">
+                                    raised {formatDate(e.created_at)}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="grid gap-2">
+                                  <Label htmlFor={`payment_${e.id}`}>Payment</Label>
+                                  <Select
+                                    name={`payment_${e.id}`}
+                                    defaultValue={e.payment_status ?? "pending"}
+                                  >
+                                    <SelectTrigger id={`payment_${e.id}`}>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="pending">Pending</SelectItem>
+                                      <SelectItem value="paid">Paid</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                {labels.length > 0 && (
+                                  <div className="grid gap-2">
+                                    <Label htmlFor={`stage_${e.id}`}>{progressTitle}</Label>
+                                    <Select
+                                      name={`stage_${e.id}`}
+                                      defaultValue={String(e.filing_stage ?? 0)}
+                                    >
+                                      <SelectTrigger id={`stage_${e.id}`}>
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {labels.map((label, i) => (
+                                          <SelectItem key={i} value={String(i)}>
+                                            {i}. {label}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div className="mt-3 grid gap-2">
+                      <Label htmlFor="add_service">Add a service</Label>
+                      <Select name="add_service" defaultValue={NO_SERVICE}>
+                        <SelectTrigger id="add_service">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={NO_SERVICE}>— Don&apos;t add one —</SelectItem>
+                          {ONBOARDING_SERVICES.map((s) => (
+                            <SelectItem key={s} value={s}>
+                              {ONBOARDING_SERVICE_LABELS[s]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Starts at stage 0 / unpaid — set its progress after saving.
+                      </p>
+                    </div>
+
                     <div className="mt-3 grid gap-2">
                       <Label htmlFor="password">
                         Login password {client.user_id ? "(type a new one to reset)" : "(optional)"}

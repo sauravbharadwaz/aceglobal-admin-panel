@@ -29,12 +29,14 @@ export default async function ClientDetailPage({
   const client = clients.find((c) => c.id === id);
   if (!client) notFound();
 
-  const engagement = engagements[client.id] ?? null;
+  // Every service this client has, newest first — including ones they raised
+  // themselves from the dashboard after becoming a client.
+  const clientEngagements = engagements[client.id] ?? [];
 
-  // Documents attached to the service request + standalone dashboard uploads, deduped by path.
+  // Documents attached to any service request + standalone dashboard uploads, deduped by path.
   const seen = new Set<string>();
   const documents: ClientDocument[] = [
-    ...(engagement?.documents ?? []),
+    ...clientEngagements.flatMap((e) => e.documents),
     ...(documentsByClient[client.id] ?? []),
   ].filter((d) => (seen.has(d.path) ? false : (seen.add(d.path), true)));
 
@@ -50,7 +52,7 @@ export default async function ClientDetailPage({
   return (
     <ClientProfile
       client={client}
-      engagement={engagement}
+      engagements={clientEngagements}
       documents={documents}
       invoices={clientInvoices}
       experts={experts}

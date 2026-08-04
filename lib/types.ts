@@ -135,15 +135,23 @@ export interface OnboardingSubmission {
   // Auth ownership + live filing progress (0..5) shown on the client dashboard.
   user_id?: string | null;
   filing_stage?: number | null;
+  /** Set when the request came from (or was matched to) an existing client. */
+  client_id?: string | null;
+}
+
+/** The client a submission belongs to, when it isn't a brand-new request. */
+export interface SubmissionClient {
+  id: string;
+  name: string;
 }
 
 // Formation filing milestones the admin advances (index = filing_stage value).
 export const FILING_STAGES: string[] = [
   "Not started",
   "Name reserved",
+  "Registered agent set up",
   "State filing submitted",
   "EIN obtained",
-  "Registered agent set up",
   "Complete",
 ];
 
@@ -196,6 +204,18 @@ export interface Client {
   // Client portal (dashboard access)
   user_id?: string | null;
   portal_status?: PortalStatus | null;
+  // Optional business / tax / banking details (supabase/client-business-details.sql).
+  // All nullable — a client can be saved without any of them.
+  contact_person?: string | null;
+  ein?: string | null;
+  state_withholding_id?: string | null;
+  state_unemployment_id?: string | null;
+  eft_pin?: string | null;
+  billing_address?: string | null;
+  business_address?: string | null;
+  bank_name?: string | null;
+  bank_account_number?: string | null;
+  bank_routing_number?: string | null;
 }
 
 /** A business document a client uploaded (stored in the client-documents bucket). */
@@ -205,7 +225,11 @@ export interface ClientDocument {
   size?: number | null;
 }
 
-/** The dashboard engagement linked to a client (one onboarding_submissions row). */
+/**
+ * One service a client has with us — backed by a single onboarding_submissions
+ * row. A client can hold several (e.g. bookkeeping, then a later company
+ * formation raised from their dashboard), so these come back as a list.
+ */
 export interface ClientEngagement {
   id: string;
   client_id: string;
@@ -213,6 +237,9 @@ export interface ClientEngagement {
   filing_stage: number | null;
   payment_status: PaymentStatus | null;
   documents: ClientDocument[];
+  created_at?: string | null;
+  /** False when the row was matched by login (user_id) rather than client_id. */
+  linked?: boolean;
 }
 
 export const LEAD_STATUSES: LeadStatus[] = [

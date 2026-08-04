@@ -32,6 +32,72 @@ function parseForm(formData: FormData) {
   };
 }
 
+/**
+ * Optional business / tax / banking details (supabase/client-business-details.sql).
+ * Kept apart from the core fields so a database that hasn't run that migration
+ * yet still saves the client — see `saveClientValues`.
+ */
+const DETAIL_FIELDS = [
+  "contact_person",
+  "ein",
+  "state_withholding_id",
+  "state_unemployment_id",
+  "eft_pin",
+  "billing_address",
+  "business_address",
+  "bank_name",
+  "bank_account_number",
+  "bank_routing_number",
+] as const;
+
+function parseDetails(formData: FormData): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const field of DETAIL_FIELDS) {
+    // Absent from the form (e.g. the "New client" dialog) → leave the column alone.
+    if (formData.get(field) === null) continue;
+    out[field] = emptyToNull(formData.get(field));
+  }
+  return out;
+}
+
+/**
+ * Write-once. A detail that already holds a value is locked for good: the form
+ * renders it as read-only text, and this drops any attempt to change it anyway
+ * (a hand-crafted POST, a stale tab). Only still-blank fields get through.
+ */
+async function dropLockedDetails(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  id: string,
+  details: Record<string, string | null>,
+): Promise<Record<string, string | null>> {
+  if (!Object.keys(details).length) return details;
+
+  const { data, error } = await supabase
+    .from("clients")
+    .select(DETAIL_FIELDS.join(", "))
+    .eq("id", id)
+    .maybeSingle();
+  // Columns not migrated yet → let the caller's missing-column fallback handle it.
+  if (error || !data) return details;
+
+  const existing = data as unknown as Record<string, string | null>;
+  const open: Record<string, string | null> = {};
+  for (const [field, value] of Object.entries(details)) {
+    if (String(existing[field] ?? "").trim()) continue; // already set → locked
+    open[field] = value;
+  }
+  return open;
+}
+
+/** A missing column reads as PGRST204 from PostgREST's schema cache. */
+function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === "PGRST204" || /column .* does not exist/i.test(error.message ?? "");
+}
+
+const MIGRATION_HINT =
+  "Business, tax and banking fields weren't saved — run supabase/client-business-details.sql in Supabase.";
+
 /** The dashboard-facing engagement the client sees. `service` drives which
  *  dashboard view (persona) they land on; blank means "don't touch the
  *  engagement" (e.g. a client we don't intend to give portal access yet). */
@@ -47,6 +113,9 @@ function parseEngagement(formData: FormData) {
 
 type ClientValues = ReturnType<typeof parseForm>;
 type EngagementValues = ReturnType<typeof parseEngagement>;
+
+const clampStage = (v: FormDataEntryValue | null) =>
+  Math.max(0, Math.min(5, Math.round(Number(v ?? 0) || 0)));
 
 /**
  * Keep the client's dashboard engagement (an onboarding_submissions row) in sync
@@ -87,7 +156,8 @@ async function notifyStageAdvance(
       });
     }
     const emailed = await sendProgressEmail(client?.email, label);
-    return emailed.ok ? null : (emailed.error ?? null);
+    // Self-describing: callers surface the warning verbatim in a toast.
+    return emailed.ok ? null : `Client email not sent — ${emailed.error ?? "unknown error"}`;
   } catch {
     /* non-fatal: the stage was already saved */
     return null;
@@ -156,6 +226,121 @@ async function syncEngagement(
 }
 
 /**
+ * Save the per-service edits made on the client Profile tab.
+ *
+ * A client can hold several services at once — the ones we set up plus any they
+ * raise themselves from their dashboard later — so the form posts one
+ * `engagement_id` per service alongside its own `stage_<id>` / `payment_<id>`.
+ * Rows the form didn't carry are left untouched, and a row that only matched by
+ * login gets its `client_id` backfilled so it's properly attached from now on.
+ */
+async function saveEngagementEdits(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clientId: string,
+  client: ClientValues,
+  formData: FormData,
+): Promise<{ error: string | null; warning: string | null }> {
+  const ids = formData.getAll("engagement_id").map(String).filter(Boolean);
+  if (!ids.length) return { error: null, warning: null };
+
+  const { data, error } = await supabase
+    .from("onboarding_submissions")
+    .select("id, client_id, user_id, service, filing_stage")
+    .in("id", ids);
+  if (error) return { error: error.message, warning: null };
+
+  // A row can belong to this client by client_id or (dashboard-raised, not yet
+  // linked) by the client's login. Anything else in the form is ignored.
+  const { data: owner } = await supabase
+    .from("clients")
+    .select("user_id")
+    .eq("id", clientId)
+    .maybeSingle();
+  const clientUserId = (owner as { user_id?: string | null } | null)?.user_id ?? null;
+
+  type Row = {
+    id: string;
+    client_id: string | null;
+    user_id: string | null;
+    service: OnboardingService;
+    filing_stage: number | null;
+  };
+
+  let warning: string | null = null;
+  for (const row of (data as Row[]) ?? []) {
+    if (row.client_id !== clientId && !(clientUserId && row.user_id === clientUserId)) continue;
+
+    const stageRaw = formData.get(`stage_${row.id}`);
+    const payRaw = formData.get(`payment_${row.id}`);
+    const patch: Record<string, unknown> = {};
+    if (stageRaw !== null) patch.filing_stage = clampStage(stageRaw);
+    if (payRaw !== null) patch.payment_status = String(payRaw) === "paid" ? "paid" : "pending";
+    // Keep the client's own contact details on their service requests, and
+    // attach a dashboard-raised row that only matched by login. Only values we
+    // actually have — never blank out what the client submitted themselves.
+    patch.name = client.name;
+    if (client.email) patch.email = client.email;
+    if (client.company) patch.company = client.company;
+    if (row.client_id !== clientId) patch.client_id = clientId;
+
+    const { error: upErr } = await supabase
+      .from("onboarding_submissions")
+      .update(patch)
+      .eq("id", row.id);
+    if (upErr) return { error: upErr.message, warning };
+
+    if (typeof patch.filing_stage === "number") {
+      const w = await notifyStageAdvance(
+        supabase,
+        clientId,
+        row.user_id,
+        Number(row.filing_stage ?? 0),
+        patch.filing_stage,
+        row.service,
+      );
+      warning ??= w;
+    }
+  }
+  return { error: null, warning };
+}
+
+/**
+ * Add a service to an existing client from the Profile tab ("Add a service").
+ * Always a new row — a client can genuinely hold two of the same service (two
+ * formations, say), so this never overwrites one they already have.
+ */
+async function addEngagement(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  clientId: string,
+  client: ClientValues,
+  formData: FormData,
+): Promise<{ error: string | null }> {
+  const raw = String(formData.get("add_service") ?? "").trim();
+  if (!(ONBOARDING_SERVICES as string[]).includes(raw)) return { error: null };
+
+  const { data: owner } = await supabase
+    .from("clients")
+    .select("user_id")
+    .eq("id", clientId)
+    .maybeSingle();
+
+  const { error } = await supabase.from("onboarding_submissions").insert({
+    service: raw as OnboardingService,
+    name: client.name,
+    email: client.email,
+    company: client.company,
+    plan: client.plan,
+    status: "won" as const,
+    filing_stage: 0,
+    payment_status: "pending" as const,
+    client_id: clientId,
+    // So it shows on the client's own dashboard right away.
+    user_id: (owner as { user_id?: string | null } | null)?.user_id ?? null,
+  });
+  return { error: error?.message ?? null };
+}
+
+/**
  * Give a client a login with an admin-set password (no email needed). Creates a
  * confirmed auth user (or updates the password of an existing one), links it to
  * the client + their engagements, and marks them active. Staff-guarded. No-op if
@@ -219,15 +404,21 @@ export async function createClientRecord(formData: FormData): Promise<Result> {
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
   const engagement = parseEngagement(formData);
+  const details = parseDetails(formData);
   const password = String(formData.get("password") ?? "").trim();
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  let detailWarning: string | null = null;
+  let { data, error } = await supabase
     .from("clients")
-    .insert(values)
+    .insert({ ...values, ...details })
     .select("id")
     .single();
-  if (error) return { error: error.message };
+  if (isMissingColumn(error)) {
+    detailWarning = MIGRATION_HINT;
+    ({ data, error } = await supabase.from("clients").insert(values).select("id").single());
+  }
+  if (error || !data) return { error: error?.message ?? "Could not save the client." };
 
   const eng = await syncEngagement(supabase, data.id, values, engagement);
   if (eng.error) return { error: `Client saved, but the dashboard engagement failed: ${eng.error}` };
@@ -237,7 +428,7 @@ export async function createClientRecord(formData: FormData): Promise<Result> {
 
   revalidatePath("/clients");
   revalidatePath("/dashboard");
-  return { error: null, warning: eng.warning };
+  return { error: null, warning: eng.warning ?? detailWarning };
 }
 
 export async function updateClientRecord(
@@ -246,22 +437,35 @@ export async function updateClientRecord(
 ): Promise<Result> {
   const values = parseForm(formData);
   if (!values.name) return { error: "Name is required." };
-  const engagement = parseEngagement(formData);
   const password = String(formData.get("password") ?? "").trim();
 
   const supabase = await createClient();
-  const { error } = await supabase.from("clients").update(values).eq("id", id);
+  const details = await dropLockedDetails(supabase, id, parseDetails(formData));
+  let detailWarning: string | null = null;
+  let { error } = await supabase
+    .from("clients")
+    .update({ ...values, ...details })
+    .eq("id", id);
+  if (isMissingColumn(error)) {
+    detailWarning = MIGRATION_HINT;
+    ({ error } = await supabase.from("clients").update(values).eq("id", id));
+  }
   if (error) return { error: error.message };
 
-  const eng = await syncEngagement(supabase, id, values, engagement);
-  if (eng.error) return { error: `Client saved, but the dashboard engagement failed: ${eng.error}` };
+  const eng = await saveEngagementEdits(supabase, id, values, formData);
+  if (eng.error) return { error: `Client saved, but a service update failed: ${eng.error}` };
+
+  const added = await addEngagement(supabase, id, values, formData);
+  if (added.error) return { error: `Client saved, but the new service failed: ${added.error}` };
 
   const pwErr = await provisionClientLogin(id, values.email, password);
   if (pwErr) return { error: `Client saved, but the login failed: ${pwErr}` };
 
+  revalidatePath(`/clients/${id}`);
   revalidatePath("/clients");
+  revalidatePath("/onboarding");
   revalidatePath("/dashboard");
-  return { error: null, warning: eng.warning };
+  return { error: null, warning: eng.warning ?? detailWarning };
 }
 
 /**
