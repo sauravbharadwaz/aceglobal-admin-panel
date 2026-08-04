@@ -1,7 +1,20 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { BellRing, Download, Eye, FileText, MoreHorizontal, Search, Send, Trash2, UserPlus } from "lucide-react";
+import Link from "next/link";
+import {
+  ArrowUpRight,
+  BellRing,
+  Download,
+  Eye,
+  FileText,
+  MoreHorizontal,
+  Search,
+  Send,
+  Trash2,
+  UserPlus,
+  UserRound,
+} from "lucide-react";
 import { toast } from "sonner";
 import {
   convertToClient,
@@ -18,6 +31,7 @@ import {
   type OnboardingStatus,
   type OnboardingSubmission,
   type PaymentStatus,
+  type SubmissionClient,
 } from "@/lib/types";
 import { formatCurrency, formatDate, formatDateTime, titleCase } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +69,15 @@ import {
 
 type Filter = "all" | OnboardingSubmission["service"];
 
+/** Intake queue vs. work raised by people who are already clients. */
+type Scope = "new" | "existing" | "all";
+
+const SCOPES: { key: Scope; label: string }[] = [
+  { key: "new", label: "New requests" },
+  { key: "existing", label: "Existing clients" },
+  { key: "all", label: "All" },
+];
+
 const FILTERS: { key: Filter; label: string }[] = [
   { key: "all", label: "All" },
   { key: "bookkeeping", label: "Bookkeeping" },
@@ -85,9 +108,13 @@ function formatValue(value: unknown): string {
 
 export function OnboardingTable({
   submissions,
+  clientBySubmission = {},
 }: {
   submissions: OnboardingSubmission[];
+  /** submission id → the client it belongs to, for ones that aren't new leads. */
+  clientBySubmission?: Record<string, SubmissionClient>;
 }) {
+  const [scope, setScope] = useState<Scope>("new");
   const [filter, setFilter] = useState<Filter>("all");
   const [payFilter, setPayFilter] = useState<"all" | PaymentStatus>("all");
   const [query, setQuery] = useState("");
@@ -96,22 +123,38 @@ export function OnboardingTable({
   const [notifBody, setNotifBody] = useState("");
   const [isPending, startTransition] = useTransition();
 
+  const scopeCounts = useMemo(() => {
+    const existing = submissions.filter((s) => clientBySubmission[s.id]).length;
+    return { new: submissions.length - existing, existing, all: submissions.length };
+  }, [submissions, clientBySubmission]);
+
+  // Everything below the scope chips counts and filters within the chosen scope.
+  const scoped = useMemo(
+    () =>
+      submissions.filter((s) => {
+        if (scope === "all") return true;
+        const isClient = !!clientBySubmission[s.id];
+        return scope === "existing" ? isClient : !isClient;
+      }),
+    [submissions, clientBySubmission, scope],
+  );
+
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: submissions.length };
-    for (const s of submissions) c[s.service] = (c[s.service] ?? 0) + 1;
+    const c: Record<string, number> = { all: scoped.length };
+    for (const s of scoped) c[s.service] = (c[s.service] ?? 0) + 1;
     return c;
-  }, [submissions]);
+  }, [scoped]);
 
   const payCounts = useMemo(() => {
-    const c: Record<string, number> = { all: submissions.length, paid: 0, pending: 0 };
-    for (const s of submissions) {
+    const c: Record<string, number> = { all: scoped.length, paid: 0, pending: 0 };
+    for (const s of scoped) {
       if (s.payment_status === "paid") c.paid += 1;
       else if (s.payment_status === "pending") c.pending += 1;
     }
     return c;
-  }, [submissions]);
+  }, [scoped]);
 
-  const filtered = submissions.filter((s) => {
+  const filtered = scoped.filter((s) => {
     if (filter !== "all" && s.service !== filter) return false;
     if (payFilter !== "all" && s.payment_status !== payFilter) return false;
     const q = query.toLowerCase();
@@ -192,6 +235,24 @@ export function OnboardingTable({
 
   return (
     <div className="space-y-4">
+      {/* New intake vs. services raised by people who are already clients. */}
+      <div className="flex flex-wrap gap-1">
+        {SCOPES.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setScope(s.key)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              scope === s.key
+                ? "bg-foreground text-background"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {s.label}
+            <span className="ml-1.5 opacity-70">{scopeCounts[s.key]}</span>
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* Service filter */}
         <div className="flex flex-wrap gap-1">
@@ -261,7 +322,11 @@ export function OnboardingTable({
             {filtered.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="h-24 text-center text-muted-foreground">
-                  No onboarding submissions yet.
+                  {scope === "existing"
+                    ? "No requests from existing clients."
+                    : scope === "new"
+                      ? "No new requests — everything here belongs to an existing client."
+                      : "No onboarding submissions yet."}
                 </TableCell>
               </TableRow>
             ) : (
@@ -270,6 +335,16 @@ export function OnboardingTable({
                   <TableCell>
                     <div className="font-medium">{s.name ?? "—"}</div>
                     <div className="text-xs text-muted-foreground">{s.email ?? ""}</div>
+                    {clientBySubmission[s.id] && (
+                      <Link
+                        href={`/clients/${clientBySubmission[s.id].id}`}
+                        className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                      >
+                        <UserRound className="size-3" />
+                        {clientBySubmission[s.id].name}
+                        <ArrowUpRight className="size-3" />
+                      </Link>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Badge variant="outline" className="font-medium">
@@ -336,10 +411,19 @@ export function OnboardingTable({
                           <Eye className="size-4" />
                           View details
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleConvert(s.id)}>
-                          <UserPlus className="size-4" />
-                          Convert to client
-                        </DropdownMenuItem>
+                        {clientBySubmission[s.id] ? (
+                          <DropdownMenuItem
+                            render={<Link href={`/clients/${clientBySubmission[s.id].id}`} />}
+                          >
+                            <UserRound className="size-4" />
+                            Open client
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => handleConvert(s.id)}>
+                            <UserPlus className="size-4" />
+                            Convert to client
+                          </DropdownMenuItem>
+                        )}
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => handleDelete(s.id)}

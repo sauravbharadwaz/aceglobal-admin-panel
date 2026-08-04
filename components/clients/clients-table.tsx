@@ -71,7 +71,7 @@ export function ClientsTable({
   experts = [],
 }: {
   clients: Client[];
-  engagements: Record<string, ClientEngagement>;
+  engagements: Record<string, ClientEngagement[]>;
   /** Team members clients can be assigned to (account managers). */
   experts?: Expert[];
 }) {
@@ -111,7 +111,7 @@ export function ClientsTable({
         toast.error(res.error);
       } else {
         toast.success("Client added");
-        if (res.warning) toast.warning(`Client email not sent — ${res.warning}`);
+        if (res.warning) toast.warning(res.warning);
         setDialogOpen(false);
       }
     });
