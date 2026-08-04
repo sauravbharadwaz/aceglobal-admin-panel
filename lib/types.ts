@@ -258,6 +258,8 @@ export interface ClientEngagement {
   linked?: boolean;
   /** What this request's form already told us about the client. */
   hints?: ClientProfileHints;
+  /** The submission behind this engagement, for rendering its application PDF. */
+  row?: OnboardingSubmission;
 }
 
 export const LEAD_STATUSES: LeadStatus[] = [

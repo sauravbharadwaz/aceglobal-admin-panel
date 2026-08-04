@@ -9,7 +9,9 @@ import type {
   Lead,
   LeadStatus,
   Meeting,
+  OnboardingService,
   OnboardingSubmission,
+  PaymentStatus,
   Payout,
   Review,
 } from "@/lib/types";
@@ -83,7 +85,9 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("onboarding_submissions")
-    .select("id, created_at, client_id, user_id, email, service, filing_stage, payment_status, details")
+    .select(
+      "id, created_at, client_id, user_id, name, email, company, plan, status, service, filing_stage, payment_status, order_ref, amount_total, details",
+    )
     .order("created_at", { ascending: false });
   if (error) {
     if (isMissingTable(error)) return {};
@@ -103,7 +107,14 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
     if (c.email) emailToClient[c.email.toLowerCase()] = c.id;
   }
 
-  type Row = ClientEngagement & {
+  // The raw submission columns, not a ClientEngagement — that shape is what we
+  // build from these below.
+  type Row = {
+    id: string;
+    service: OnboardingService;
+    filing_stage: number | null;
+    payment_status: PaymentStatus | null;
+    client_id?: string | null;
     user_id?: string | null;
     email?: string | null;
     details?: Record<string, unknown>;
@@ -177,6 +188,7 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
       created_at: row.created_at ?? null,
       linked: !!row.client_id,
       hints: extractHints(row.details),
+      row: row as unknown as OnboardingSubmission,
     });
   }
   return map;

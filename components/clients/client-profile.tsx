@@ -278,6 +278,20 @@ export function ClientProfile({
     });
   }
 
+  /** jsPDF is heavy, so the builder is only pulled in on click. */
+  async function handleDownloadApplication(engagement: ClientEngagement) {
+    if (!engagement.row) {
+      toast.error("This request has no stored application.");
+      return;
+    }
+    try {
+      const mod = await import("@/lib/application-pdf");
+      mod.downloadSubmissionPDF(engagement.row);
+    } catch {
+      toast.error("Could not generate the application PDF.");
+    }
+  }
+
   function handleUpload(formData: FormData) {
     startTransition(async () => {
       const res = await uploadClientDocument(client.id, formData);
@@ -434,7 +448,10 @@ export function ClientProfile({
           <TabsList className="w-max">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="documents">Documents ({documents.length})</TabsTrigger>
+            {/* Applications count too — they're downloadable documents here. */}
+            <TabsTrigger value="documents">
+              Documents ({documents.length + engagements.length})
+            </TabsTrigger>
             <TabsTrigger value="invoices">Invoices ({invoices.length})</TabsTrigger>
           </TabsList>
         </div>
@@ -809,8 +826,48 @@ export function ClientProfile({
                 </Button>
               </form>
 
+              {/* What the client filled in on each onboarding form. Not an
+                  uploaded file — generated on demand from the stored answers,
+                  the same document the client can download themselves. */}
+              {engagements.length > 0 && (
+                <div className="grid gap-2">
+                  {engagements.map((e) => (
+                    <div
+                      key={`app-${e.id}`}
+                      className="flex items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-sm"
+                    >
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
+                      <div className="flex-1 min-w-0">
+                        <span className="block truncate">
+                          {ONBOARDING_SERVICE_LABELS[e.service]} application
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          Their submitted answers
+                          {e.created_at ? ` · ${formatDate(e.created_at)}` : ""}
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8"
+                        onClick={() => handleDownloadApplication(e)}
+                        disabled={isPending || !e.row}
+                        aria-label={`Download ${ONBOARDING_SERVICE_LABELS[e.service]} application`}
+                        title="Download as PDF"
+                      >
+                        <Download className="size-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {documents.length === 0 ? (
-                <p className="py-8 text-center text-sm text-muted-foreground">No documents yet.</p>
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  {engagements.length
+                    ? "No uploaded files yet — the applications above are generated from their answers."
+                    : "No documents yet."}
+                </p>
               ) : (
                 <div className="grid gap-2">
                   {documents.map((doc) => (
