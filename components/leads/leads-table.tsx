@@ -1,10 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { MoreHorizontal, Plus, Search, Trash2 } from "lucide-react";
+import { Building2, Download, FileDown, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { createLead, deleteLead, updateLeadStatus } from "@/app/(admin)/leads/actions";
-import { LEAD_STATUSES, type Lead, type LeadStatus } from "@/lib/types";
+import { getDocumentUrl } from "@/app/(admin)/clients/actions";
+import {
+  LEAD_STATUSES,
+  type Lead,
+  type LeadStatus,
+  type OnboardingSubmission,
+} from "@/lib/types";
 import { formatDate, titleCase } from "@/lib/format";
 import { LeadStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +35,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -41,10 +48,48 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-export function LeadsTable({ leads }: { leads: Lead[] }) {
+/** Uploaded-file manifest as stored in `details` by the client app. */
+type UploadedFile = { name?: string; path?: string };
+function filesIn(sub: OnboardingSubmission): UploadedFile[] {
+  const d = (sub.details ?? {}) as Record<string, unknown>;
+  return Object.values(d).flatMap((v) =>
+    Array.isArray(v) && v.every((f) => !!f && typeof f === "object" && typeof (f as UploadedFile).path === "string")
+      ? (v as UploadedFile[])
+      : [],
+  );
+}
+
+export function LeadsTable({
+  leads,
+  businesses = {},
+}: {
+  leads: Lead[];
+  /** Lowercased email → the business this lead added at sign-up, when they had one. */
+  businesses?: Record<string, OnboardingSubmission>;
+}) {
   const [query, setQuery] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+
+  const businessFor = (lead: Lead): OnboardingSubmission | undefined =>
+    businesses[(lead.email ?? "").trim().toLowerCase()];
+
+  async function handleDownloadProfile(sub: OnboardingSubmission) {
+    try {
+      const mod = await import("@/lib/application-pdf");   // lazy-load jsPDF only on click
+      mod.downloadSubmissionPDF(sub);
+    } catch {
+      toast.error("Could not generate the business profile PDF.");
+    }
+  }
+
+  function handleDownloadDoc(path: string) {
+    startTransition(async () => {
+      const res = await getDocumentUrl(path);
+      if (res.error || !res.url) toast.error(res.error ?? "Couldn't open that document.");
+      else window.open(res.url, "_blank", "noopener");
+    });
+  }
 
   const filtered = leads.filter((l) => {
     const q = query.toLowerCase();
@@ -176,7 +221,19 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
                     <div>{lead.phone ?? ""}</div>
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-sm">
-                    {lead.company ?? "—"}
+                    {/* App sign-ups have no company on the lead row itself; show the
+                        business they added so staff can see at a glance which leads
+                        have details to download. */}
+                    {lead.company ?? businessFor(lead)?.company ?? "—"}
+                    {!lead.company && businessFor(lead) && (
+                      <span
+                        className="ml-2 inline-flex items-center gap-1 align-middle text-xs text-muted-foreground"
+                        title="This lead added an existing business at sign-up"
+                      >
+                        <Building2 className="size-3" />
+                        on file
+                      </span>
+                    )}
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-sm">
                     {lead.service ? titleCase(lead.service) : "—"}
@@ -211,6 +268,31 @@ export function LeadsTable({ leads }: { leads: Lead[] }) {
                         <MoreHorizontal className="size-4" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {/* Present only for leads who signed up choosing "I already
+                            have a business" — everyone else sees just Delete. */}
+                        {(() => {
+                          const sub = businessFor(lead);
+                          if (!sub) return null;
+                          return (
+                            <>
+                              <DropdownMenuItem onClick={() => handleDownloadProfile(sub)}>
+                                <FileDown className="size-4" />
+                                Download business details
+                              </DropdownMenuItem>
+                              {filesIn(sub).map((f, i) => (
+                                <DropdownMenuItem
+                                  key={f.path ?? i}
+                                  disabled={isPending}
+                                  onClick={() => f.path && handleDownloadDoc(f.path)}
+                                >
+                                  <Download className="size-4" />
+                                  {f.name ?? "Document"}
+                                </DropdownMenuItem>
+                              ))}
+                              <DropdownMenuSeparator />
+                            </>
+                          );
+                        })()}
                         <DropdownMenuItem
                           className="text-destructive focus:text-destructive"
                           onClick={() => handleDelete(lead.id, lead.name)}

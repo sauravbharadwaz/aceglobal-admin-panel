@@ -207,7 +207,9 @@ export function OnboardingTable({
   async function handleDownloadPdf(row: OnboardingSubmission) {
     try {
       const mod = await import("@/lib/application-pdf");   // lazy-load jsPDF only on click
-      mod.downloadApplicationPDF(row);
+      /* Dispatch on service: forcing a bookkeeping or business-profile row through
+         the formation layout prints a document with almost every field blank. */
+      mod.downloadSubmissionPDF(row);
     } catch {
       toast.error("Could not generate the application PDF.");
     }

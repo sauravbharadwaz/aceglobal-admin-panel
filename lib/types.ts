@@ -109,7 +109,9 @@ export type OnboardingService =
   | "bookkeeping"
   | "corporate-tax"
   | "company-formation"
-  | "tax-account";
+  | "tax-account"
+  /** A client who already trades, recording the business they have. Nothing is filed. */
+  | "existing-business";
 
 export type OnboardingStatus = "new" | "reviewing" | "quoted" | "won" | "lost";
 
@@ -290,6 +292,7 @@ export const ONBOARDING_SERVICES: OnboardingService[] = [
   "corporate-tax",
   "company-formation",
   "tax-account",
+  "existing-business",
 ];
 
 export const PAYMENT_STATUSES: PaymentStatus[] = ["pending", "paid"];
@@ -299,4 +302,5 @@ export const ONBOARDING_SERVICE_LABELS: Record<OnboardingService, string> = {
   "corporate-tax": "Corporate Tax",
   "company-formation": "Company Formation",
   "tax-account": "Register New Tax Account",
+  "existing-business": "Existing Business",
 };

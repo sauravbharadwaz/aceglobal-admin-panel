@@ -60,34 +60,14 @@ function parseDetails(formData: FormData): Record<string, string | null> {
   return out;
 }
 
-/**
- * Write-once. A detail that already holds a value is locked for good: the form
- * renders it as read-only text, and this drops any attempt to change it anyway
- * (a hand-crafted POST, a stale tab). Only still-blank fields get through.
+/*
+ * These details were write-once: a field that already held a value was locked for
+ * good — rendered as read-only text, and any change dropped here as well. That
+ * made a mistyped EIN or a closed bank account impossible to correct from the
+ * admin panel. The profile is now read-only as a whole until staff press Edit, so
+ * that deliberate toggle is what guards against an accidental change, rather than
+ * an irreversible first write.
  */
-async function dropLockedDetails(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  id: string,
-  details: Record<string, string | null>,
-): Promise<Record<string, string | null>> {
-  if (!Object.keys(details).length) return details;
-
-  const { data, error } = await supabase
-    .from("clients")
-    .select(DETAIL_FIELDS.join(", "))
-    .eq("id", id)
-    .maybeSingle();
-  // Columns not migrated yet → let the caller's missing-column fallback handle it.
-  if (error || !data) return details;
-
-  const existing = data as unknown as Record<string, string | null>;
-  const open: Record<string, string | null> = {};
-  for (const [field, value] of Object.entries(details)) {
-    if (String(existing[field] ?? "").trim()) continue; // already set → locked
-    open[field] = value;
-  }
-  return open;
-}
 
 /** A missing column reads as PGRST204 from PostgREST's schema cache. */
 function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
@@ -440,7 +420,7 @@ export async function updateClientRecord(
   const password = String(formData.get("password") ?? "").trim();
 
   const supabase = await createClient();
-  const details = await dropLockedDetails(supabase, id, parseDetails(formData));
+  const details = parseDetails(formData);
   let detailWarning: string | null = null;
   let { error } = await supabase
     .from("clients")

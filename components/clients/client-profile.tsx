@@ -8,12 +8,14 @@ import {
   FileText,
   KeyRound,
   Lock,
+  Pencil,
   Plus,
   Send,
   ShieldOff,
   Trash2,
   Upload,
   UserCog,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -120,7 +122,7 @@ function PortalBadge({ status }: { status: PortalStatus }) {
  * the server drops changes to a set field too, so this can't be worked around
  * from a stale tab.
  */
-function LockedField({
+function DetailField({
   id,
   label,
   value,
@@ -140,34 +142,23 @@ function LockedField({
   const suggested = (suggestion ?? "").trim();
   return (
     <div className={cn("grid gap-2", className)}>
-      <Label htmlFor={saved ? undefined : id} className={cn(saved && "text-muted-foreground")}>
-        {label}
-      </Label>
-      {saved ? (
-        <div
-          className="flex h-8 items-center gap-2 rounded-lg border border-dashed bg-muted/60 px-2.5 py-1 text-base md:text-sm"
-          title="Locked — this can't be changed once saved"
-        >
-          <Lock className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{saved}</span>
-        </div>
-      ) : (
-        <>
-          {/* Prefilled from their application but NOT stored yet — these fields
-              lock on write, so a human confirms the value by saving. */}
-          <Input
-            id={id}
-            name={id}
-            autoComplete="off"
-            placeholder={placeholder}
-            defaultValue={suggested}
-          />
-          {suggested && (
-            <p className="text-xs text-muted-foreground">
-              From their application — check it, then save to lock it in.
-            </p>
-          )}
-        </>
+      <Label htmlFor={id}>{label}</Label>
+      {/* An ordinary input like every other field on this form. The enclosing
+          fieldset disables it until Edit is pressed, so the Edit toggle is the
+          single gate on the whole record — these details used to be write-once
+          and stayed read-only text for good, which meant a typo in an EIN could
+          never be corrected here. */}
+      <Input
+        id={id}
+        name={id}
+        autoComplete="off"
+        placeholder={placeholder}
+        defaultValue={saved || suggested}
+      />
+      {!saved && suggested && (
+        <p className="text-xs text-muted-foreground">
+          From their application — check it, then save.
+        </p>
       )}
     </div>
   );
@@ -200,6 +191,22 @@ export function ClientProfile({
   const [isPending, startTransition] = useTransition();
   const [ownerValue, setOwnerValue] = useState<string>(client.owner || UNASSIGNED);
   const [raiseOpen, setRaiseOpen] = useState(false);
+  /* The profile is a record, not a form: it reads as one until someone deliberately
+     chooses to edit. Stops a stray click or a mistyped character in a field nobody
+     meant to touch from being saved over a client's filing details. */
+  const [editing, setEditing] = useState(false);
+  const [tab, setTab] = useState("overview");
+
+  /** Enter edit mode from the header, wherever the reader happens to be. */
+  function startEditing() {
+    setTab("profile");
+    setEditing(true);
+  }
+  /** Drop every unsaved change by remounting the form with the stored values. */
+  function cancelEditing() {
+    setOwnerValue(client.owner || UNASSIGNED);
+    setEditing(false);
+  }
 
   const portal = (client.portal_status ?? "none") as PortalStatus;
   const invited = portal !== "none";
@@ -307,6 +314,7 @@ export function ClientProfile({
       else {
         toast.success("Client updated");
         if (res.warning) toast.warning(res.warning);
+        setEditing(false);   // saved — back to the locked record view
       }
     });
   }
@@ -363,9 +371,19 @@ export function ClientProfile({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Inline status change */}
-            <Select value={client.status} onValueChange={(v) => handleStatusChange(String(v))}>
-              <SelectTrigger className="w-40" aria-label="Change status">
+            {/* Inline status change. Locked with the rest of the record — it writes the
+                same field the profile form shows, so leaving it live would make "locked"
+                a half-truth. */}
+            <Select
+              value={client.status}
+              onValueChange={(v) => handleStatusChange(String(v))}
+              disabled={!editing || isPending}
+            >
+              <SelectTrigger
+                className="w-40"
+                aria-label="Change status"
+                title={editing ? undefined : "Locked — choose Edit to change"}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -433,6 +451,18 @@ export function ClientProfile({
               </>
             )}
 
+            {editing ? (
+              <Button variant="outline" onClick={cancelEditing} disabled={isPending}>
+                <X className="size-4" />
+                Cancel editing
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={startEditing}>
+                <Pencil className="size-4" />
+                Edit
+              </Button>
+            )}
+
             <Button variant="outline" onClick={handleDelete} disabled={isPending} className="text-destructive">
               <Trash2 className="size-4" />
               Delete
@@ -442,7 +472,7 @@ export function ClientProfile({
       </div>
 
       {/* ── Tabs ───────────────────────────────────────────────── */}
-      <Tabs defaultValue="overview">
+      <Tabs value={tab} onValueChange={(v) => setTab(String(v))}>
         {/* Scrolls horizontally on small screens instead of overflowing the page. */}
         <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <TabsList className="w-max">
@@ -526,7 +556,20 @@ export function ClientProfile({
         <TabsContent value="profile" className="pt-4">
           <Card>
             <CardContent className="pt-6">
-              <form action={handleSaveProfile}>
+              {/* `key` remounts the form when edit mode flips, so Cancel restores every
+                  defaultValue rather than leaving typed-but-unsaved text on screen. */}
+              <form action={handleSaveProfile} key={editing ? "edit" : "view"}>
+                {!editing && (
+                  <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-dashed bg-muted/40 px-3 py-2.5 text-xs text-muted-foreground">
+                    <Lock className="size-3.5 shrink-0" />
+                    <span>
+                      These details are locked. Choose <span className="font-medium">Edit</span> above to change them.
+                    </span>
+                  </div>
+                )}
+                {/* A disabled fieldset disables every control inside it, so nothing here
+                    is editable — or submittable — until Edit is pressed. */}
+                <fieldset disabled={!editing} className="min-w-0">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2 sm:col-span-2">
                     <Label htmlFor="name">Name *</Label>
@@ -606,56 +649,55 @@ export function ClientProfile({
                     </Select>
                   </div>
 
-                  {/* Optional + write-once: blank fields accept a value, saved ones lock. */}
                   <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-sm font-semibold">Business &amp; tax details</h4>
-                      <Lock className="size-3.5 text-muted-foreground" />
                     </div>
                     <p className="mb-3 text-xs text-muted-foreground">
-                      All optional — but once saved, a value is locked and can&apos;t be edited here.
+                      All optional. These go on the client&apos;s filings — check them against
+                      their paperwork before saving.
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <LockedField
+                      <DetailField
                         id="contact_person"
                         label="Contact person"
                         value={client.contact_person}
                         suggestion={hints.contact_person}
                         placeholder="Full name"
                       />
-                      <LockedField
+                      <DetailField
                         id="ein"
                         label="EIN"
                         value={client.ein}
                         suggestion={hints.ein}
                         placeholder="12-3456789"
                       />
-                      <LockedField
+                      <DetailField
                         id="state_withholding_id"
                         label="State withholding"
                         value={client.state_withholding_id}
                         placeholder="Account number"
                       />
-                      <LockedField
+                      <DetailField
                         id="state_unemployment_id"
                         label="State unemployment tax"
                         value={client.state_unemployment_id}
                         placeholder="Account number"
                       />
-                      <LockedField
+                      <DetailField
                         id="eft_pin"
                         label="EFT PIN"
                         value={client.eft_pin}
                         className="sm:col-span-2"
                       />
-                      <LockedField
+                      <DetailField
                         id="billing_address"
                         label="Billing address"
                         value={client.billing_address}
                         placeholder="Street, city, state, ZIP"
                         className="sm:col-span-2"
                       />
-                      <LockedField
+                      <DetailField
                         id="business_address"
                         label="Business physical address"
                         value={client.business_address}
@@ -669,19 +711,19 @@ export function ClientProfile({
                   <div className="sm:col-span-2 rounded-lg border bg-muted/30 p-4">
                     <div className="flex flex-wrap items-center gap-2">
                       <h4 className="text-sm font-semibold">Banking</h4>
-                      <Lock className="size-3.5 text-muted-foreground" />
                     </div>
                     <p className="mb-3 text-xs text-muted-foreground">
-                      All optional — but once saved, a value is locked and can&apos;t be edited here.
+                      All optional. Used for payouts and direct debits — double-check any
+                      change before saving.
                     </p>
                     <div className="grid gap-3 sm:grid-cols-3">
-                      <LockedField id="bank_name" label="Bank name" value={client.bank_name} />
-                      <LockedField
+                      <DetailField id="bank_name" label="Bank name" value={client.bank_name} />
+                      <DetailField
                         id="bank_account_number"
                         label="Account number"
                         value={client.bank_account_number}
                       />
-                      <LockedField
+                      <DetailField
                         id="bank_routing_number"
                         label="Routing number"
                         value={client.bank_routing_number}
@@ -801,11 +843,17 @@ export function ClientProfile({
                     </div>
                   </div>
                 </div>
-                <div className="mt-4 flex justify-end">
-                  <Button type="submit" disabled={isPending}>
-                    {isPending ? "Saving…" : "Save changes"}
-                  </Button>
-                </div>
+                </fieldset>
+                {editing && (
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button type="button" variant="outline" onClick={cancelEditing} disabled={isPending}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={isPending}>
+                      {isPending ? "Saving…" : "Save changes"}
+                    </Button>
+                  </div>
+                )}
               </form>
             </CardContent>
           </Card>
