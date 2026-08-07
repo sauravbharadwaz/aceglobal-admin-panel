@@ -1,10 +1,13 @@
-import { getLeads } from "@/lib/data";
+import { getExistingBusinessByEmail, getLeads } from "@/lib/data";
 import { LeadsTable } from "@/components/leads/leads-table";
 
 export const dynamic = "force-dynamic";
 
 export default async function LeadsPage() {
-  const leads = await getLeads();
+  const [leads, businesses] = await Promise.all([
+    getLeads(),
+    getExistingBusinessByEmail(),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -14,7 +17,7 @@ export default async function LeadsPage() {
           Inbound enquiries from the website and other channels.
         </p>
       </div>
-      <LeadsTable leads={leads} />
+      <LeadsTable leads={leads} businesses={businesses} />
     </div>
   );
 }

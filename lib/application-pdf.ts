@@ -188,7 +188,43 @@ const SERVICE_TITLES: Record<string, string> = {
   bookkeeping: "Bookkeeping Request",
   "corporate-tax": "Corporate Tax Request",
   "tax-account": "Tax Account Registration",
+  "existing-business": "Business Profile",
 };
+
+/**
+ * Readable names for detail keys whose camelCase does not survive the generic
+ * "einNumber" → "Ein number" transform. Anything absent falls back to that.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  business: "Legal name",
+  method: "Added by",
+  entity: "Business type",
+  ein: "EIN",
+  stateId: "State ID / file number",
+  formState: "State of registration",
+  bizEmail: "Business email",
+  bizPhone: "Business phone",
+  addrLine1: "Address line 1",
+  addrLine2: "Address line 2",
+  addrCity: "City",
+  addrState: "State",
+  addrZip: "ZIP / postal code",
+  addrCountry: "Country",
+  clientName: "Contact name",
+  clientEmail: "Contact email",
+  clientPhone: "Contact phone",
+  stateDoc: "State document",
+  federalDoc: "Federal document",
+};
+
+/** True for a details value that is an uploaded-file manifest: [{ name, path }]. */
+function isFileManifest(v: unknown): v is Array<{ name?: string; path?: string }> {
+  return (
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((f) => !!f && typeof f === "object" && typeof (f as { path?: unknown }).path === "string")
+  );
+}
 
 /**
  * Bookkeeping, corporate-tax and tax-account forms have no fixed shape — each
@@ -224,6 +260,7 @@ function downloadRequestPDF(row: OnboardingSubmission): void {
   };
   // "bizType" → "Biz type"; leading underscores mark internal bookkeeping fields.
   const label = (k: string) =>
+    FIELD_LABELS[k] ??
     k.replace(/^_/, "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
   const show = (v: unknown): string => {
     if (Array.isArray(v)) return v.map(show).filter(Boolean).join(", ");
@@ -261,17 +298,25 @@ function downloadRequestPDF(row: OnboardingSubmission): void {
   doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...faint);
   doc.text("SUBMITTED DETAILS", M, y + 8); y += 18;
 
-  // `documents` is the uploaded-file manifest, listed separately below.
-  const keys = Object.keys(d).filter((k) => k !== "documents" && show(d[k]).trim() !== "");
+  /* Uploads are listed under their own heading, not inline: `show()` would flatten
+     each record into "Name: x · Path: y · Size: z" and print the storage path.
+     Detected by shape rather than by key name — 'documents' on a tax-account
+     request, 'stateDoc'/'federalDoc' on a business profile, others later. */
+  const fileKeys = Object.keys(d).filter((k) => isFileManifest(d[k]));
+  const keys = Object.keys(d).filter(
+    (k) => !fileKeys.includes(k) && k !== "documents" && show(d[k]).trim() !== "",
+  );
   if (!keys.length) kvRow("Details", "");
   for (const k of keys) kvRow(label(k), show(d[k]));
 
-  const files = Array.isArray(d.documents) ? (d.documents as Array<{ name?: string }>) : [];
+  const files = fileKeys.flatMap((k) =>
+    (d[k] as Array<{ name?: string }>).map((f) => ({ key: k, name: f?.name || "document" })),
+  );
   if (files.length) {
     y += 14;
     doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...faint);
     doc.text("ATTACHED FILES", M, y + 8); y += 18;
-    files.forEach((f, i) => kvRow(`File ${i + 1}`, f?.name || "document"));
+    files.forEach((f, i) => kvRow(fileKeys.length > 1 ? label(f.key) : `File ${i + 1}`, f.name));
   }
 
   const pages = doc.getNumberOfPages();

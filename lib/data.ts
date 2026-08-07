@@ -69,6 +69,40 @@ export function getLeads(): Promise<Lead[]> {
   return fetchAll<Lead>("leads", "created_at", { ascending: false });
 }
 
+/**
+ * Business profiles submitted by clients who signed up choosing "I already have
+ * a business", keyed by lowercased contact email so a lead row can be matched to
+ * the details that client filled in.
+ *
+ * Email is the only join available: the `leads` row is written at sign-up, before
+ * the business exists, and carries no user_id or client_id. Newest submission per
+ * email wins — the rows arrive newest-first and the first write to a key stays.
+ *
+ * Returns {} rather than throwing when the table or service predates this feature,
+ * matching how the rest of this module degrades.
+ */
+export async function getExistingBusinessByEmail(): Promise<
+  Record<string, OnboardingSubmission>
+> {
+  if (!isSupabaseConfigured) return {};
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("onboarding_submissions")
+    .select("*")
+    .eq("service", "existing-business")
+    .order("created_at", { ascending: false });
+  if (error) {
+    if (isMissingTable(error)) return {};
+    throw new Error(error.message);
+  }
+  const byEmail: Record<string, OnboardingSubmission> = {};
+  for (const row of (data as OnboardingSubmission[]) ?? []) {
+    const key = (row.email ?? "").trim().toLowerCase();
+    if (key && !byEmail[key]) byEmail[key] = row;
+  }
+  return byEmail;
+}
+
 export function getClients(): Promise<Client[]> {
   return fetchAll<Client>("clients", "created_at", { ascending: false });
 }
