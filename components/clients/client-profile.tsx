@@ -174,6 +174,63 @@ function DetailField({
   );
 }
 
+/** The six parts of one address, in the order they'd be written on an envelope. */
+const ADDRESS_PARTS = [
+  { part: "line1", label: "Street address", placeholder: "123 Main St", wide: true },
+  { part: "line2", label: "Apt, suite, floor", placeholder: "Optional", wide: true },
+  { part: "city", label: "City", placeholder: "Austin", wide: false },
+  { part: "state", label: "State", placeholder: "Texas", wide: false },
+  { part: "zip", label: "ZIP", placeholder: "78701", wide: false },
+  { part: "country", label: "Country", placeholder: "United States", wide: false },
+] as const;
+
+/**
+ * One address as its own labelled block. `prefix` picks the billing_* or
+ * business_* columns, which are named identically apart from that prefix.
+ *
+ * These were single free-text boxes, which meant retyping an address the client
+ * had already given us in parts on their onboarding form — and left the state
+ * and ZIP a filing needs buried in a sentence.
+ */
+function AddressFields({
+  legend,
+  prefix,
+  client,
+  hints = {},
+}: {
+  legend: string;
+  prefix: "billing" | "business";
+  client: Client;
+  /** Only the business address has anything on their application to offer. */
+  hints?: ClientProfileHints;
+}) {
+  const stored = client as unknown as Record<string, string | null | undefined>;
+  const offered = hints as unknown as Record<string, string | null | undefined>;
+  // What was typed before the split. The migration copies it into line1, so this
+  // only matters on a database that hasn't run it yet — without it, the old
+  // address would simply vanish from the form.
+  const legacy = prefix === "billing" ? client.billing_address : client.business_address;
+
+  return (
+    <div className="sm:col-span-2 grid gap-3">
+      <h5 className="text-xs font-semibold text-muted-foreground">{legend}</h5>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {ADDRESS_PARTS.map(({ part, label, placeholder, wide }) => (
+          <DetailField
+            key={part}
+            id={`${prefix}_${part}`}
+            label={label}
+            placeholder={placeholder}
+            value={stored[`${prefix}_${part}`] ?? (part === "line1" ? legacy : null)}
+            suggestion={offered[`${prefix}_${part}`]}
+            className={wide ? "sm:col-span-2" : undefined}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function formatBytes(size: number | null | undefined): string {
   if (!size || size <= 0) return "";
   if (size < 1024) return `${size} B`;
@@ -821,20 +878,16 @@ export function ClientProfile({
                         value={client.eft_pin}
                         className="sm:col-span-2"
                       />
-                      <DetailField
-                        id="billing_address"
-                        label="Billing address"
-                        value={client.billing_address}
-                        placeholder="Street, city, state, ZIP"
-                        className="sm:col-span-2"
+                      <AddressFields
+                        legend="Billing address"
+                        prefix="billing"
+                        client={client}
                       />
-                      <DetailField
-                        id="business_address"
-                        label="Business physical address"
-                        value={client.business_address}
-                        suggestion={hints.business_address}
-                        placeholder="Street, city, state, ZIP"
-                        className="sm:col-span-2"
+                      <AddressFields
+                        legend="Business physical address"
+                        prefix="business"
+                        client={client}
+                        hints={hints}
                       />
                     </div>
                   </div>
