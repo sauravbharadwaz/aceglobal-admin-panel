@@ -67,6 +67,84 @@ export async function sendProgressEmail(
   }
 }
 
+/**
+ * Reminder that a due date is coming up (or has passed). Sent by the
+ * deadline-reminders cron; same Resend setup and the same no-op-when-unset
+ * behaviour as sendProgressEmail.
+ */
+export async function sendDeadlineEmail(
+  to: string | null | undefined,
+  deadline: { title: string; dueOn: string; daysUntil: number },
+): Promise<{ ok: boolean; error?: string }> {
+  const key = process.env.RESEND_API_KEY;
+  const recipient = (to ?? "").trim();
+  if (!deadline.title) return { ok: false };
+  if (!key) return { ok: false, error: "Email isn't set up: RESEND_API_KEY is missing on this deployment." };
+  if (!recipient) return { ok: false, error: "No email address on file for this client." };
+
+  const from = process.env.NOTIFY_EMAIL_FROM || "Ace Global <notifications@updates.aceglobal.ai>";
+  const appUrl = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
+
+  const { title, dueOn, daysUntil } = deadline;
+  const when = describeDueIn(daysUntil);
+  const overdue = daysUntil < 0;
+  const subject = overdue ? `Overdue: ${title}` : `${title} is due ${when}`;
+  const accent = overdue ? "#be123c" : "#b45309";
+  // The date column is "2026-04-15"; read it as a plain date so the label can't
+  // slip a day on a server in a different timezone.
+  const [y, m, d] = dueOn.split("-").map(Number);
+  const dueLabel = new Date(y, (m || 1) - 1, d || 1).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const html = `<!doctype html>
+  <div style="margin:0;padding:24px;background:#f5f6fa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1e2330">
+    <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e6e8f0;border-radius:16px;overflow:hidden">
+      <div style="padding:22px 28px;border-bottom:1px solid #eef0f6;font-weight:700;font-size:18px;color:#0f172a">Ace Global</div>
+      <div style="padding:28px">
+        <p style="margin:0 0 6px;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:${accent}">${overdue ? "Overdue" : "Upcoming deadline"}</p>
+        <h1 style="margin:0 0 6px;font-size:22px;line-height:1.3;color:#0f172a">${escapeHtml(title)}</h1>
+        <p style="margin:0 0 22px;font-size:15px;line-height:1.6;color:#4b5163">Due <strong>${escapeHtml(dueLabel)}</strong> — ${escapeHtml(when)}. Your dashboard has the details, and we'll be in touch if we need anything from you.</p>
+        <a href="${appUrl}" style="display:inline-block;background:#f97316;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 22px;border-radius:10px">Open your dashboard</a>
+      </div>
+      <div style="padding:16px 28px;border-top:1px solid #eef0f6;font-size:12px;color:#9aa0ae">You're receiving this because you have an active engagement with Ace Global.</div>
+    </div>
+  </div>`;
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: recipient, subject, html }),
+    });
+    if (!res.ok) {
+      let detail = "";
+      try {
+        const body = (await res.json()) as { message?: string; name?: string };
+        detail = body.message || body.name || "";
+      } catch {
+        /* ignore parse failure */
+      }
+      return { ok: false, error: `Resend ${res.status}: ${detail || res.statusText}` };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Email send failed." };
+  }
+}
+
+/** "today", "in 7 days", "3 days ago" — the human half of the subject line. */
+export function describeDueIn(daysUntil: number): string {
+  if (daysUntil === 0) return "today";
+  if (daysUntil === 1) return "tomorrow";
+  if (daysUntil === -1) return "1 day ago";
+  if (daysUntil < 0) return `${Math.abs(daysUntil)} days ago`;
+  return `in ${daysUntil} days`;
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

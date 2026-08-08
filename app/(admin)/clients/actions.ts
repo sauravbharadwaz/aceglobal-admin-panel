@@ -703,6 +703,74 @@ export async function deleteClientDocument(
   return { error: null };
 }
 
+/* ── Due dates ──────────────────────────────────────────────────────────────
+   Staff-set dates the client sees on their own dashboard. Only 'done' is ever
+   written; overdue and due-soon are derived from due_on at read time.          */
+
+/** Add a due date to a client. */
+export async function createClientDeadline(
+  clientId: string,
+  formData: FormData,
+): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+
+  const title = String(formData.get("title") ?? "").trim();
+  const dueOn = String(formData.get("due_on") ?? "").trim();
+  if (!title) return { error: "Give the due date a title." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueOn)) return { error: "Pick a due date." };
+
+  // The picker's "— None —" option posts a sentinel, not an empty string.
+  const service = emptyToNull(formData.get("service"));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("client_deadlines").insert({
+    client_id: clientId,
+    title: title.slice(0, 200),
+    due_on: dueOn,
+    notes: emptyToNull(formData.get("notes")),
+    service: service === "none" ? null : service,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/clients/${clientId}`);
+  return { error: null };
+}
+
+/** Tick a due date off, or put it back. */
+export async function setClientDeadlineDone(
+  clientId: string,
+  id: string,
+  done: boolean,
+): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("client_deadlines")
+    .update({
+      status: done ? "done" : "upcoming",
+      completed_at: done ? new Date().toISOString() : null,
+      // Reopening should be able to remind again.
+      ...(done ? {} : { last_reminded_on: null }),
+    })
+    .eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/clients/${clientId}`);
+  return { error: null };
+}
+
+export async function deleteClientDeadline(clientId: string, id: string): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("client_deadlines").delete().eq("id", id);
+  if (error) return { error: error.message };
+
+  revalidatePath(`/clients/${clientId}`);
+  return { error: null };
+}
+
 function emptyToNull(value: FormDataEntryValue | null): string | null {
   const s = String(value ?? "").trim();
   return s.length ? s : null;

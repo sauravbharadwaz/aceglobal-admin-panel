@@ -47,9 +47,13 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   const isAuthRoute = pathname.startsWith("/login");
+  // Route handlers carry their own authentication (the cron job presents a
+  // secret, not a session cookie). Redirecting them to /login would turn every
+  // scheduled run into a 307 that never reaches the handler.
+  const isApiRoute = pathname.startsWith("/api/");
 
   // Unauthenticated users trying to reach the app -> send to /login.
-  if (!user && !isAuthRoute) {
+  if (!user && !isAuthRoute && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

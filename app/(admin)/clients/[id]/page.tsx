@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import {
+  getClientDeadlines,
   getClientDocuments,
   getClientEngagements,
   getClients,
@@ -18,13 +19,15 @@ export default async function ClientDetailPage({
 }) {
   const { id } = await params;
 
-  const [clients, engagements, documentsByClient, invoices, experts] = await Promise.all([
-    getClients(),
-    getClientEngagements(),
-    getClientDocuments(),
-    getInvoices(),
-    getExperts(),
-  ]);
+  const [clients, engagements, documentsByClient, invoices, experts, deadlines] =
+    await Promise.all([
+      getClients(),
+      getClientEngagements(),
+      getClientDocuments(),
+      getInvoices(),
+      getExperts(),
+      getClientDeadlines(id),
+    ]);
 
   const client = clients.find((c) => c.id === id);
   if (!client) notFound();
@@ -69,6 +72,7 @@ export default async function ClientDetailPage({
       documents={documents}
       invoices={clientInvoices}
       experts={experts}
+      deadlines={deadlines}
     />
   );
 }
