@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import type {
   Client,
+  ClientDeadline,
   ClientDocument,
   ClientEngagement,
   Expert,
@@ -105,6 +106,26 @@ export async function getExistingBusinessByEmail(): Promise<
 
 export function getClients(): Promise<Client[]> {
   return fetchAll<Client>("clients", "created_at", { ascending: false });
+}
+
+/**
+ * A single client's due dates, soonest first — the order they're read in, on
+ * both the profile and the client's own dashboard. Empty when the migration
+ * hasn't been pushed yet, like everything else here.
+ */
+export async function getClientDeadlines(clientId: string): Promise<ClientDeadline[]> {
+  if (!isSupabaseConfigured) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("client_deadlines")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("due_on", { ascending: true });
+  if (error) {
+    if (isMissingTable(error)) return [];
+    throw new Error(error.message);
+  }
+  return (data as ClientDeadline[]) ?? [];
 }
 
 /**

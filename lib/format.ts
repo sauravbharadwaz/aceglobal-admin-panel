@@ -1,3 +1,4 @@
+import { DUE_SOON_DAYS, type DeadlineState } from "@/lib/types";
 import type {
   ClientStatus,
   ExpertStatus,
@@ -106,6 +107,49 @@ export const PORTAL_STATUS_LABELS: Record<PortalStatus, string> = {
   none: "No access",
   invited: "Invited",
   active: "Active",
+};
+
+/**
+ * Reads a `date` column ("2026-04-15") as local midnight. `new Date(s)` would
+ * treat it as UTC, which lands on the previous day for anyone west of Greenwich
+ * — enough to make a deadline read as overdue a day early.
+ */
+function parseDateOnly(value: string): Date {
+  const [y, m, d] = value.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
+/** Whole days from today to a due date. Negative once it's past. */
+export function daysUntilDue(dueOn: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((parseDateOnly(dueOn).getTime() - today.getTime()) / 86_400_000);
+}
+
+/** Derives overdue / due-soon from the date, so it can never go stale. */
+export function deadlineState(d: { due_on: string; status: string }): DeadlineState {
+  if (d.status === "done") return "done";
+  const days = daysUntilDue(d.due_on);
+  if (days < 0) return "overdue";
+  if (days <= DUE_SOON_DAYS) return "due-soon";
+  return "upcoming";
+}
+
+/** "Overdue by 3 days", "Due today", "In 12 days". */
+export function deadlineLabel(d: { due_on: string; status: string }): string {
+  if (d.status === "done") return "Done";
+  const days = daysUntilDue(d.due_on);
+  if (days < 0) return `Overdue by ${Math.abs(days)} day${days === -1 ? "" : "s"}`;
+  if (days === 0) return "Due today";
+  if (days === 1) return "Due tomorrow";
+  return `In ${days} days`;
+}
+
+export const DEADLINE_STATE_STYLES: Record<DeadlineState, string> = {
+  overdue: "bg-rose-50 text-rose-700 border-rose-200",
+  "due-soon": "bg-amber-50 text-amber-700 border-amber-200",
+  upcoming: "bg-blue-50 text-blue-700 border-blue-200",
+  done: "bg-emerald-50 text-emerald-700 border-emerald-200",
 };
 
 /** Formats an ISO timestamp as e.g. "Fri, Jul 3, 2:30 PM". */

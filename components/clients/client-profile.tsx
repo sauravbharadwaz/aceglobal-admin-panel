@@ -4,12 +4,15 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
+  CalendarClock,
+  Check,
   Download,
   FileText,
   KeyRound,
   Lock,
   Pencil,
   Plus,
+  RotateCcw,
   Send,
   ShieldOff,
   Trash2,
@@ -20,11 +23,14 @@ import {
 import { toast } from "sonner";
 import {
   assignClientOwner,
+  createClientDeadline,
+  deleteClientDeadline,
   deleteClientDocument,
   deleteClientRecord,
   getDocumentUrl,
   inviteClientToPortal,
   revokeClientPortal,
+  setClientDeadlineDone,
   updateClientRecord,
   updateClientStatus,
   uploadClientDocument,
@@ -36,6 +42,7 @@ import {
   ONBOARDING_SERVICE_LABELS,
   stageLabelsForService,
   type Client,
+  type ClientDeadline,
   type ClientDocument,
   type ClientEngagement,
   type ClientProfileHints,
@@ -46,8 +53,11 @@ import {
   type PortalStatus,
 } from "@/lib/types";
 import {
+  DEADLINE_STATE_STYLES,
   PORTAL_STATUS_LABELS,
   PORTAL_STATUS_STYLES,
+  deadlineLabel,
+  deadlineState,
   formatCurrency,
   formatDate,
   titleCase,
@@ -56,7 +66,7 @@ import { cn } from "@/lib/utils";
 import { ClientStatusBadge, InvoiceStatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -178,6 +188,7 @@ export function ClientProfile({
   documents,
   invoices,
   experts = [],
+  deadlines = [],
 }: {
   client: Client;
   /** Every service this client has, newest first. */
@@ -187,10 +198,13 @@ export function ClientProfile({
   documents: ClientDocument[];
   invoices: Invoice[];
   experts?: Expert[];
+  /** Due dates we've set for this client, soonest first. */
+  deadlines?: ClientDeadline[];
 }) {
   const [isPending, startTransition] = useTransition();
   const [ownerValue, setOwnerValue] = useState<string>(client.owner || UNASSIGNED);
   const [raiseOpen, setRaiseOpen] = useState(false);
+  const [dueOpen, setDueOpen] = useState(false);
   /* The profile is a record, not a form: it reads as one until someone deliberately
      chooses to edit. Stops a stray click or a mistyped character in a field nobody
      meant to touch from being saved over a client's filing details. */
@@ -217,6 +231,12 @@ export function ClientProfile({
       ...(client.owner ? [client.owner] : []),
     ]),
   ).sort((a, b) => a.localeCompare(b));
+
+  const openDeadlines = deadlines.filter((d) => d.status !== "done");
+  // Arrives sorted by due_on; this only sinks the finished ones to the bottom.
+  const sortedDeadlines = [...deadlines].sort(
+    (a, b) => Number(a.status === "done") - Number(b.status === "done"),
+  );
 
   /** "2. Registered agent set up" for a service that tracks progress, else null. */
   function progressLabel(e: ClientEngagement): string | null {
@@ -327,6 +347,34 @@ export function ClientProfile({
         toast.success("Invoice created");
         setRaiseOpen(false);
       }
+    });
+  }
+
+  function handleAddDeadline(formData: FormData) {
+    startTransition(async () => {
+      const res = await createClientDeadline(client.id, formData);
+      if (res.error) toast.error(res.error);
+      else {
+        toast.success("Due date added");
+        setDueOpen(false);
+      }
+    });
+  }
+
+  function handleToggleDeadline(id: string, done: boolean) {
+    startTransition(async () => {
+      const res = await setClientDeadlineDone(client.id, id, done);
+      if (res.error) toast.error(res.error);
+      else toast.success(done ? "Marked done" : "Reopened");
+    });
+  }
+
+  function handleDeleteDeadline(id: string, title: string) {
+    if (!window.confirm(`Remove "${title}"?`)) return;
+    startTransition(async () => {
+      const res = await deleteClientDeadline(client.id, id);
+      if (res.error) toast.error(res.error);
+      else toast.success("Due date removed");
     });
   }
 
@@ -540,6 +588,89 @@ export function ClientProfile({
               </CardContent>
             </Card>
           </div>
+          {/* Due dates — what the client sees on their own dashboard. Open ones
+              first, soonest at the top; ticked-off ones sink to the bottom. */}
+          <Card className="mt-4">
+            <CardHeader>
+              <CardTitle className="text-sm">
+                Due dates{openDeadlines.length ? ` (${openDeadlines.length} open)` : ""}
+              </CardTitle>
+              {/* CardHeader is a grid — this slot puts the button on the right. */}
+              <CardAction>
+                <Button variant="outline" size="sm" onClick={() => setDueOpen(true)}>
+                  <Plus className="size-4" />
+                  Add
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              {sortedDeadlines.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  No due dates yet — add one and it appears on the client&apos;s dashboard.
+                </p>
+              ) : (
+                <div className="grid gap-2">
+                  {sortedDeadlines.map((d) => {
+                    const state = deadlineState(d);
+                    const done = state === "done";
+                    return (
+                      <div
+                        key={d.id}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg border px-3 py-2 text-sm",
+                          done && "opacity-60",
+                        )}
+                      >
+                        <CalendarClock
+                          className={cn(
+                            "size-4 shrink-0",
+                            state === "overdue" ? "text-rose-600" : "text-muted-foreground",
+                          )}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <span className={cn("block truncate", done && "line-through")}>
+                            {d.title}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(d.due_on)}
+                            {d.notes ? ` · ${d.notes}` : ""}
+                          </span>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={cn("font-medium", DEADLINE_STATE_STYLES[state])}
+                        >
+                          {deadlineLabel(d)}
+                        </Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          onClick={() => handleToggleDeadline(d.id, !done)}
+                          disabled={isPending}
+                          aria-label={done ? "Reopen" : "Mark done"}
+                          title={done ? "Reopen" : "Mark done"}
+                        >
+                          {done ? <RotateCcw className="size-4" /> : <Check className="size-4" />}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8 text-destructive"
+                          onClick={() => handleDeleteDeadline(d.id, d.title)}
+                          disabled={isPending}
+                          aria-label="Remove"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {client.notes && (
             <Card className="mt-4">
               <CardHeader>
@@ -1020,6 +1151,67 @@ export function ClientProfile({
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Add due date dialog */}
+      <Dialog open={dueOpen} onOpenChange={setDueOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <form action={handleAddDeadline}>
+            <DialogHeader>
+              <DialogTitle>Add a due date</DialogTitle>
+              <DialogDescription>
+                {client.name} sees this on their dashboard, and gets a reminder email as
+                it approaches.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="due_title">What&apos;s due *</Label>
+                <Input
+                  id="due_title"
+                  name="title"
+                  required
+                  placeholder="Form 1120 — federal return"
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2">
+                  <Label htmlFor="due_on">Due date *</Label>
+                  <Input id="due_on" name="due_on" type="date" required />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="due_service">Service</Label>
+                  <Select name="service" defaultValue={NO_SERVICE}>
+                    <SelectTrigger id="due_service">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_SERVICE}>— None —</SelectItem>
+                      {ONBOARDING_SERVICES.map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {ONBOARDING_SERVICE_LABELS[s]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="due_notes">Note</Label>
+                <Input
+                  id="due_notes"
+                  name="notes"
+                  placeholder="Optional — the client sees this too"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={isPending}>
+                {isPending ? "Adding…" : "Add due date"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Raise invoice dialog */}
       <Dialog open={raiseOpen} onOpenChange={setRaiseOpen}>

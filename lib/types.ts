@@ -176,6 +176,36 @@ export function stageLabelsForService(service: string | null | undefined): strin
   return [];
 }
 
+/**
+ * A date the client has to hit — a tax filing, an annual report, documents we
+ * need from them. Staff set these on the client profile; the client sees them
+ * on their dashboard.
+ */
+export interface ClientDeadline {
+  id: string;
+  created_at: string;
+  client_id: string;
+  title: string;
+  /** A plain calendar date ("2026-04-15"), not a timestamp. */
+  due_on: string;
+  notes: string | null;
+  /** Only 'done' is stored — see DeadlineState for what's shown. */
+  status: "upcoming" | "done";
+  completed_at: string | null;
+  service: string | null;
+  last_reminded_on: string | null;
+}
+
+/**
+ * What a due date reads as right now. Derived from `due_on` on every render
+ * rather than stored, so nothing goes stale between page loads — the same
+ * trick `effectiveInvoiceStatus` uses for overdue invoices.
+ */
+export type DeadlineState = "done" | "overdue" | "due-soon" | "upcoming";
+
+/** A due date counts as "due soon" once it's this close. */
+export const DUE_SOON_DAYS = 14;
+
 export interface Lead {
   id: string;
   created_at: string;
