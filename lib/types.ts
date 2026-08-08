@@ -246,8 +246,24 @@ export interface Client {
   state_withholding_id?: string | null;
   state_unemployment_id?: string | null;
   eft_pin?: string | null;
+  /**
+   * Superseded by the split columns below. Still read so an address typed
+   * before the split is not lost; nothing writes them.
+   */
   billing_address?: string | null;
   business_address?: string | null;
+  billing_line1?: string | null;
+  billing_line2?: string | null;
+  billing_city?: string | null;
+  billing_state?: string | null;
+  billing_zip?: string | null;
+  billing_country?: string | null;
+  business_line1?: string | null;
+  business_line2?: string | null;
+  business_city?: string | null;
+  business_state?: string | null;
+  business_zip?: string | null;
+  business_country?: string | null;
   bank_name?: string | null;
   bank_account_number?: string | null;
   bank_routing_number?: string | null;
@@ -263,14 +279,21 @@ export interface ClientDocument {
 /**
  * Values the client already gave us on an onboarding form, offered as prefill
  * for the admin profile. Suggestions only — nothing is stored until a staff
- * member reviews it and saves, because these fields lock once written.
+ * member reviews it and saves.
  */
 export interface ClientProfileHints {
   contact_person?: string | null;
   ein?: string | null;
   phone?: string | null;
   email?: string | null;
-  business_address?: string | null;
+  // The onboarding form collects the address in parts, so it is offered in
+  // parts. It used to be joined into one string here and split back by hand.
+  business_line1?: string | null;
+  business_line2?: string | null;
+  business_city?: string | null;
+  business_state?: string | null;
+  business_zip?: string | null;
+  business_country?: string | null;
 }
 
 /**

@@ -184,17 +184,6 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
   const text = (v: unknown) => (v == null ? "" : String(v).trim());
   const extractHints = (details?: Record<string, unknown>) => {
     if (!details) return {};
-    const address = [
-      details.addrLine1,
-      details.addrLine2,
-      details.addrCity,
-      details.addrState,
-      details.addrZip,
-      details.addrCountry,
-    ]
-      .map(text)
-      .filter(Boolean)
-      .join(", ");
     // `mainOwner` is an INDEX into shList, not a name — the formation form uses
     // it to mark which shareholder is the primary one. Resolve it to the person.
     const shList = Array.isArray(details.shList)
@@ -212,7 +201,13 @@ export async function getClientEngagements(): Promise<Record<string, ClientEngag
       ein: text(details.ein) || null,
       phone: text(details.bizPhone) || null,
       email: text(details.bizEmail) || null,
-      business_address: address || null,
+      // Offered part by part — the profile stores them that way now.
+      business_line1: text(details.addrLine1) || null,
+      business_line2: text(details.addrLine2) || null,
+      business_city: text(details.addrCity) || null,
+      business_state: text(details.addrState) || null,
+      business_zip: text(details.addrZip) || null,
+      business_country: text(details.addrCountry) || null,
     };
   };
 
