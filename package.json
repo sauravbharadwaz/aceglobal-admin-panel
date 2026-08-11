@@ -10,7 +10,8 @@
     "db:new": "supabase migration new",
     "db:push": "supabase db push",
     "db:pull": "supabase db pull",
-    "db:diff": "supabase db diff"
+    "db:diff": "supabase db diff",
+    "build:lambda": "next build && node scripts/build-lambda.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
@@ -37,6 +38,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "archiver": "^7.0.1",
     "eslint": "^9",
     "eslint-config-next": "16.2.9",
     "supabase": "^2.111.0",
