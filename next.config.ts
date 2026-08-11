@@ -20,6 +20,24 @@ const nextConfig: NextConfig = {
   // node_modules tree.
   output: "standalone",
 
+  images: {
+    // Nothing in this app uses next/image, but Next still pulls sharp into the
+    // standalone bundle for the optimizer. sharp ships a native binary compiled
+    // for the build machine, so a Windows build produces a binary that cannot
+    // load on Lambda's Linux ARM64. Turning the optimizer off removes the
+    // dependency rather than requiring every build to happen on the target
+    // platform.
+    unoptimized: true,
+  },
+
+  // Turning the optimizer off stops Next *using* sharp, but the tracer still
+  // copies it into the standalone output. Left in, the bundle carries a native
+  // binary built for the machine that ran the build — on Lambda that is a
+  // Linux ARM64 runtime trying to load a Windows x64 .node file.
+  outputFileTracingExcludes: {
+    "*": ["node_modules/@img/**", "node_modules/sharp/**"],
+  },
+
   experimental: {
     serverActions: {
       // Next rejects a Server Action whose Origin doesn't match the Host, as a
