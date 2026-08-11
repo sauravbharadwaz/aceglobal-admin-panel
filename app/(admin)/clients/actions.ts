@@ -637,20 +637,85 @@ export async function updateClientStatus(
  * `client-documents` bucket + `client_documents` table the dashboard reads, and
  * linked to the client's portal user (when they have one) so it shows up for them.
  */
-export async function uploadClientDocument(
+const DOCUMENTS_BUCKET = "client-documents";
+const MAX_DOCUMENT_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Hand the browser a one-shot URL to upload a client document to.
+ *
+ * The file itself never passes through this server. It used to: the whole thing
+ * was posted to a Server Action and buffered in memory before being forwarded to
+ * Supabase, which meant every byte crossed the hosting stack twice and the real
+ * ceiling was whatever the platform allowed to be POSTed — Next's default action
+ * body limit is 1MB, well under the 25MB this claimed to accept.
+ *
+ * The returned token authorises the write by itself, so this does not depend on
+ * storage RLS granting staff an insert. Same pattern the client dashboard
+ * already uses against this bucket.
+ */
+export async function createDocumentUploadUrl(
   clientId: string,
-  formData: FormData,
-): Promise<Result> {
+  file: { name: string; size: number },
+): Promise<{ error: string | null; signedUrl?: string; path?: string }> {
   if (!(await currentUserIsStaff())) return { error: "Staff access required." };
-  const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file to upload." };
-  if (file.size > 25 * 1024 * 1024) return { error: "File is too large (max 25 MB)." };
+  if (!clientId) return { error: "Missing client." };
+  if (!file || !Number.isFinite(file.size) || file.size <= 0) {
+    return { error: "Choose a file to upload." };
+  }
+  if (file.size > MAX_DOCUMENT_BYTES) return { error: "File is too large (max 25 MB)." };
 
   let admin: ReturnType<typeof createAdminClient>;
   try {
     admin = createAdminClient();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Documents are not configured." };
+  }
+
+  const safeName = (file.name || "document").replace(/[^\w.\-]+/g, "_").slice(-120) || "document";
+  const path = `${clientId}/${Date.now()}-${safeName}`;
+
+  const { data, error } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUploadUrl(path);
+  if (error || !data?.signedUrl) {
+    return { error: error?.message ?? "Could not start the upload." };
+  }
+  return { error: null, signedUrl: data.signedUrl, path };
+}
+
+/**
+ * Record a document the browser has just uploaded.
+ *
+ * The path arrives from the client, so nothing here takes it on trust: it has to
+ * sit under this client's folder, and the object has to actually exist. Without
+ * that check a crafted call could write a row pointing at another client's file.
+ */
+export async function recordClientDocument(
+  clientId: string,
+  doc: { path: string; name: string; size: number },
+): Promise<Result> {
+  if (!(await currentUserIsStaff())) return { error: "Staff access required." };
+  if (!clientId || !doc?.path) return { error: "Missing document." };
+  // Also rejects "../" games — a traversal wouldn't match the required prefix.
+  if (!doc.path.startsWith(`${clientId}/`) || doc.path.includes("..")) {
+    return { error: "Unexpected upload path." };
+  }
+
+  let admin: ReturnType<typeof createAdminClient>;
+  try {
+    admin = createAdminClient();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Documents are not configured." };
+  }
+
+  const slash = doc.path.lastIndexOf("/");
+  const folder = doc.path.slice(0, slash);
+  const base = doc.path.slice(slash + 1);
+  const { data: found } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .list(folder, { search: base, limit: 1 });
+  if (!found?.some((o) => o.name === base)) {
+    return { error: "That upload didn't arrive — please try again." };
   }
 
   // Link the upload to the client's portal user (if any) so it appears on their dashboard.
@@ -661,26 +726,16 @@ export async function uploadClientDocument(
     .eq("id", clientId)
     .maybeSingle();
 
-  const safeName = (file.name || "document").replace(/[^\w.\-]+/g, "_").slice(-120) || "document";
-  const path = `${clientId}/${Date.now()}-${safeName}`;
-  const bytes = new Uint8Array(await file.arrayBuffer());
-
-  const up = await admin.storage.from("client-documents").upload(path, bytes, {
-    contentType: file.type || "application/octet-stream",
-    upsert: false,
-  });
-  if (up.error) return { error: up.error.message };
-
   const { error } = await admin.from("client_documents").insert({
     client_id: clientId,
     user_id: (client as { user_id?: string | null } | null)?.user_id ?? null,
-    name: (file.name || "document").slice(0, 200),
-    path,
-    size: file.size,
+    name: (doc.name || "document").slice(0, 200),
+    path: doc.path,
+    size: Number.isFinite(doc.size) ? doc.size : null,
   });
   if (error) {
     // Roll back the orphaned object so we don't leave a file with no row.
-    await admin.storage.from("client-documents").remove([path]);
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([doc.path]);
     return { error: error.message };
   }
 
