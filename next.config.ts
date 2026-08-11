@@ -1,10 +1,18 @@
 import type { NextConfig } from "next";
 
 /**
- * Canonical host this admin panel is served from. Behind a CDN the request's
- * Host header is the origin's internal name, not this — see `allowedOrigins`.
+ * Hostnames this admin panel is served from, comma-separated.
+ *
+ * More than one because production and the AWS staging host run side by side
+ * during the migration. Behind a CDN the request's Host header is the origin's
+ * internal name rather than any of these — see `allowedOrigins`.
+ *
+ * Baked in at build time, so a host added here needs a rebuild, not a restart.
  */
-const SITE_HOST = process.env.SITE_HOST || "admin.aceglobal.ai";
+const SITE_HOSTS = (process.env.SITE_HOSTS || "admin.aceglobal.ai,admin.aws.aceglobal.ai")
+  .split(",")
+  .map((h) => h.trim())
+  .filter(Boolean);
 
 const nextConfig: NextConfig = {
   // Emit a self-contained .next/standalone/server.js with only the modules the
@@ -20,7 +28,7 @@ const nextConfig: NextConfig = {
       // EVERY action in the app fails with "Invalid Server Actions request".
       // It passes in dev and over curl and breaks only once a CDN is in front,
       // which is exactly the change being planned.
-      allowedOrigins: [SITE_HOST],
+      allowedOrigins: SITE_HOSTS,
 
       // Default is 1MB. Documents no longer travel through an action — the
       // browser uploads to Supabase Storage directly and the action receives
