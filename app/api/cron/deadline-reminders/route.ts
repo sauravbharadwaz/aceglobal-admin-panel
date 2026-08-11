@@ -5,13 +5,18 @@ import { runDeadlineReminders } from "@/lib/deadline-reminders";
  * lib/deadline-reminders.ts — this only authenticates the caller and turns the
  * result into a response.
  *
- * Scheduled daily by Vercel Cron (see vercel.json). Vercel sends
- * `Authorization: Bearer $CRON_SECRET` on every scheduled request, which is the
- * only thing that gets past the guard below — the route is otherwise public,
- * because a cron has no session cookie to present.
+ * Scheduled daily at 13:00 UTC by EventBridge, which presents
+ * `Authorization: Bearer $CRON_SECRET` — the only thing that gets past the
+ * guard below. The route is otherwise public, because a scheduler has no
+ * session cookie to offer.
  *
- * Env (admin-panel Vercel project):
- *   CRON_SECRET                = any long random string
+ * The schedule used to live in vercel.json. It was removed when the panel moved
+ * to AWS: both platforms read the same database, so two schedules would send
+ * every client each reminder twice. Missing a day is harmless by comparison —
+ * `last_reminded_on` means the next run picks up whatever was skipped.
+ *
+ * Config is read from SSM at cold start (see deploy/bootstrap.mjs):
+ *   CRON_SECRET                = the shared secret EventBridge presents
  *   SUPABASE_SERVICE_ROLE_KEY  = needed to read across all clients
  *   RESEND_API_KEY             = to actually send (see lib/notify.ts)
  */
