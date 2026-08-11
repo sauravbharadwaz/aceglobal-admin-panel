@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -33,7 +33,8 @@ import {
   setClientDeadlineDone,
   updateClientRecord,
   updateClientStatus,
-  uploadClientDocument,
+  createDocumentUploadUrl,
+  recordClientDocument,
 } from "@/app/(admin)/clients/actions";
 import { createInvoice, sendInvoiceByEmail } from "@/app/(admin)/invoices/actions";
 import {
@@ -262,6 +263,9 @@ export function ClientProfile({
   const [ownerValue, setOwnerValue] = useState<string>(client.owner || UNASSIGNED);
   const [raiseOpen, setRaiseOpen] = useState(false);
   const [dueOpen, setDueOpen] = useState(false);
+  // Cleared after a successful upload — the flow is multi-step now, so leaving
+  // the filename sitting in the input reads as "nothing happened".
+  const uploadFormRef = useRef<HTMLFormElement>(null);
   /* The profile is a record, not a form: it reads as one until someone deliberately
      chooses to edit. Stops a stray click or a mistyped character in a field nobody
      meant to touch from being saved over a client's filing details. */
@@ -376,11 +380,53 @@ export function ClientProfile({
     }
   }
 
+  /**
+   * Three steps, because the bytes go straight to Supabase Storage rather than
+   * through our server: ask for a one-shot upload URL, PUT the file to it, then
+   * record the metadata. Posting the file to a Server Action instead capped it
+   * at whatever the host allowed in a request body.
+   */
   function handleUpload(formData: FormData) {
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) {
+      toast.error("Choose a file to upload.");
+      return;
+    }
     startTransition(async () => {
-      const res = await uploadClientDocument(client.id, formData);
-      if (res.error) toast.error(res.error);
-      else toast.success("Document uploaded");
+      const ticket = await createDocumentUploadUrl(client.id, {
+        name: file.name,
+        size: file.size,
+      });
+      if (ticket.error || !ticket.signedUrl || !ticket.path) {
+        toast.error(ticket.error ?? "Could not start the upload.");
+        return;
+      }
+
+      let ok = false;
+      try {
+        const put = await fetch(ticket.signedUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "application/octet-stream" },
+          body: file,
+        });
+        ok = put.ok;
+        if (!ok) toast.error(`Upload failed (${put.status}). Please try again.`);
+      } catch {
+        toast.error("Upload failed — check your connection and try again.");
+      }
+      if (!ok) return;
+
+      const res = await recordClientDocument(client.id, {
+        path: ticket.path,
+        name: file.name,
+        size: file.size,
+      });
+      if (res.error) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success("Document uploaded");
+      uploadFormRef.current?.reset();
     });
   }
 
@@ -1047,7 +1093,7 @@ export function ClientProfile({
         <TabsContent value="documents" className="pt-4">
           <Card>
             <CardContent className="space-y-4 pt-6">
-              <form action={handleUpload} className="flex flex-wrap items-end gap-3">
+              <form ref={uploadFormRef} action={handleUpload} className="flex flex-wrap items-end gap-3">
                 <div className="grid gap-2">
                   <Label htmlFor="file">Upload a document</Label>
                   <Input id="file" name="file" type="file" required className="w-full sm:w-72" />

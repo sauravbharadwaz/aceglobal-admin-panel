@@ -18,6 +18,7 @@
     "@supabase/supabase-js": "^2.110.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "geist": "^1.7.2",
     "jspdf": "^2.5.1",
     "lucide-react": "^1.22.0",
     "next": "16.2.9",
@@ -41,5 +42,8 @@
     "supabase": "^2.111.0",
     "tailwindcss": "^4",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }
