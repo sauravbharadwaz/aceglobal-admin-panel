@@ -1,0 +1,69 @@
+name: CI
+
+# The quality gate. Deployment is deploy.yml, which runs only after a merge to
+# main and only behind the production environment's reviewer.
+#
+# Nothing here touches AWS. That is deliberate: a pull request from a branch
+# should not be able to reach the account at all, and the deploy role's trust
+# policy enforces it — this repository may assume it only from a job declaring
+# `environment: production`.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint, typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      # Builds the real Lambda artifact rather than just `next build`, so the
+      # packaging step is exercised on every pull request instead of first
+      # failing during a deploy. It also catches the class of mistake that only
+      # shows up in the zip: a missing deploy/ file, or output: "standalone"
+      # being dropped from next.config.ts.
+      #
+      # The build-time public config is deliberately absent here. This artifact
+      # is thrown away, and requiring AWS credentials to lint a pull request is
+      # exactly what this workflow avoids. See deploy.yml for why the deploying
+      # build must have it.
+      - name: Package for Lambda
+        run: npm run build:lambda
+
+      - name: Check the artifact carries no native binaries
+        # sharp is excluded in next.config.ts because the tracer would otherwise
+        # copy a binary built for the runner into a bundle that runs on Linux
+        # ARM64. That exclusion is one line and easy to lose in a refactor, so
+        # assert the outcome rather than trusting it.
+        run: |
+          set -euo pipefail
+          if unzip -l dist/lambda.zip | grep -Eq '\.node$|@img/|sharp/'; then
+            echo "::error::dist/lambda.zip contains a native binary. Check outputFileTracingExcludes in next.config.ts."
+            unzip -l dist/lambda.zip | grep -E '\.node$|@img/|sharp/'
+            exit 1
+          fi
+          echo "No native binaries in the bundle."
