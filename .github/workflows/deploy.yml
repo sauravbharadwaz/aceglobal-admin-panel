@@ -1,0 +1,197 @@
+name: Deploy
+
+# admin.aceglobal.ai is a Next.js standalone server on Lambda behind
+# CloudFront. The stack that describes it lives in the aceglobal-infra
+# repository, but CDK reads the built artifact off disk — so the deploy runs
+# here, where the source is, and checks out the infrastructure alongside it.
+#
+# Before this workflow can run, two things must exist:
+#
+#   vars.AWS_DEPLOY_ROLE_ARN   the DeployRoleArn output of AceGlobalFoundation
+#   secrets.INFRA_REPO_TOKEN   fine-grained PAT, Contents: Read on aceglobal-infra
+#
+# and the foundation stack must list this repository as a deployer. Without
+# that last part the role refuses the token and the deploy fails at the
+# credentials step, which is the intended failure: trust is granted in one
+# reviewed place rather than by adding a workflow file.
+#
+# There is deliberately no `environment:` here. Declaring one changes the OIDC
+# subject to `environment:production`, and on a private repository without a
+# paid plan that environment carries no protection rules — so it would read as
+# an approval gate while granting credentials to any branch that names it. The
+# trust is scoped to `ref:refs/heads/main` instead, which is enforced by IAM
+# and cannot be claimed by a pull request or a side branch.
+#
+# What that does NOT do is gate on a human. Anyone who can push to main can
+# deploy. If that becomes the wrong trade, the answer is required reviewers on
+# a production environment (GitHub Pro), and the subject in the foundation
+# stack moves back to `environment:production` in the same change.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time, and never cancel one in flight. Two overlapping runs
+# collide on CloudFormation's own stack lock, and cancelling mid-update leaves
+# the stack in UPDATE_IN_PROGRESS with nothing coming to finish it.
+concurrency:
+  group: deploy-admin
+  cancel-in-progress: false
+
+permissions:
+  # Short-lived credentials from GitHub's OIDC provider. No AWS keys are stored
+  # in this repository.
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  INFRA_REPO: sauravbharadwaz/aceglobal-infra
+  STACK: AceGlobalAdminSite
+  SSM_PREFIX: /aceglobal/admin
+  SITE_URL: https://admin.aceglobal.ai
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out the admin panel
+        uses: actions/checkout@v4
+        with:
+          path: admin
+
+      - name: Check out the infrastructure
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.INFRA_REPO }}
+          ref: main
+          # The default GITHUB_TOKEN is scoped to this repository alone, so a
+          # separate token is needed to read another private repo.
+          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          path: infra
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            admin/package-lock.json
+            infra/package-lock.json
+
+      - name: Install the admin panel
+        working-directory: admin
+        run: npm ci
+
+      - name: Install CDK
+        working-directory: infra
+        run: npm ci
+
+      - name: Assume the deploy role
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── The step this pipeline exists to get right ────────────────────────
+      #
+      # `next build` inlines NEXT_PUBLIC_* at BUILD time, into server code as
+      # well as the browser bundle, replacing every `process.env.NEXT_PUBLIC_x`
+      # with a literal. lib/supabase/config.ts reads two of them, so a build run
+      # without these present bakes in `undefined` — and then no amount of SSM
+      # hydration at cold start can fix it. The symptom is not a crash: the app
+      # boots happily and renders the setup notice at every URL, as though the
+      # database were never configured.
+      #
+      # They are read from SSM rather than stored as repository secrets so there
+      # is one source of truth. deploy/bootstrap.mjs reads the same prefix at
+      # cold start, so a rotated value is picked up by a rebuild with nothing
+      # else to remember. Both are public by design — the anon key is meant to
+      # reach browsers and is bounded by RLS — which is why the deploy role is
+      # allowed to read exactly this prefix and nothing else.
+      - name: Load the build-time public config
+        working-directory: admin
+        run: |
+          set -euo pipefail
+          for name in NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY; do
+            value=$(aws ssm get-parameter \
+              --name "$SSM_PREFIX/$name" \
+              --with-decryption \
+              --query 'Parameter.Value' \
+              --output text)
+            if [ -z "$value" ] || [ "$value" = "None" ]; then
+              echo "::error::$SSM_PREFIX/$name is empty. Building now would bake in 'undefined' and every page would render the setup notice."
+              exit 1
+            fi
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+          echo "Loaded 2 build-time parameter(s)."
+
+      - name: Package for Lambda
+        working-directory: admin
+        run: npm run build:lambda
+
+      - name: Check the artifact carries no native binaries
+        # A Windows or x64 binary traced into the bundle fails at cold start
+        # with a message about the runtime rather than the file. Cheaper to
+        # catch here than in CloudWatch.
+        working-directory: admin
+        run: |
+          set -euo pipefail
+          if unzip -l dist/lambda.zip | grep -Eq '\.node$|@img/|sharp/'; then
+            echo "::error::dist/lambda.zip contains a native binary. Check outputFileTracingExcludes in next.config.ts."
+            exit 1
+          fi
+
+      - name: Show what will change
+        working-directory: infra
+        # Not a gate — nothing stops the deploy below — but it puts the
+        # infrastructure diff in the log immediately above the deploy that
+        # applied it, which is where you look first when a deploy changed more
+        # than the commit suggested it would.
+        continue-on-error: true
+        run: |
+          npx cdk diff "$STACK" --exclusively \
+            -c adminRepoPath="$GITHUB_WORKSPACE/admin"
+
+      - name: Deploy
+        working-directory: infra
+        # --exclusively: deploy this stack and nothing it depends on. Without
+        # it CDK would also apply AceGlobalFoundation, so a push to the admin
+        # panel could change DNS, certificates and the deploy role itself —
+        # which belong to the infra repository and its own review.
+        run: |
+          npx cdk deploy "$STACK" --exclusively \
+            -c adminRepoPath="$GITHUB_WORKSPACE/admin" \
+            --require-approval never \
+            --progress events
+
+      # ── Prove the deploy, rather than assume it ───────────────────────────
+      #
+      # These are the same two checks the migration commits used by hand.
+      # /login renders without touching Supabase, so it answers on a cold
+      # start; /dashboard redirecting is proof proxy.ts ran, which is also the
+      # thing that fails if the build-time config went missing — an
+      # unconfigured app serves the setup notice at 200 instead of redirecting.
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' \
+            --retry 6 --retry-all-errors --retry-delay 5 \
+            "$SITE_URL/login")
+          if [ "$code" != "200" ]; then
+            echo "::error::$SITE_URL/login returned $code, expected 200."
+            exit 1
+          fi
+
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$SITE_URL/dashboard")
+          if [ "$code" != "307" ]; then
+            echo "::error::$SITE_URL/dashboard returned $code, expected 307 to /login. A 200 here means the app is serving the setup notice — the build-time Supabase config did not reach it."
+            exit 1
+          fi
+
+          echo "Login renders and /dashboard redirects: proxy.ts is running against a configured app."
