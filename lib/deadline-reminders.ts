@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { describeDueIn, sendDeadlineEmail } from "@/lib/notify";
+import { describeDueIn, sendDeadlineEmail, sendOpsAlert } from "@/lib/notify";
 
 /**
  * Emails clients about due dates that are coming up, and pushes the same notice
@@ -17,12 +17,38 @@ import { describeDueIn, sendDeadlineEmail } from "@/lib/notify";
  */
 
 /**
- * How far ahead of a due date we write. One email per entry, no drip: 14 and 7
- * days out to give warning, 3, 1 and 0 to prompt, and -1 as the single "this is
- * past due" notice. Nothing fires after that — a missed deadline is a
- * conversation for a human, not a daily nag.
+ * How often to write, by how far away the due date is.
+ *
+ * This replaced a list of exact lead days. That list had two problems. It said
+ * nothing until a fortnight out, which is late for anything a client has to
+ * gather papers for, and it matched the day exactly — so a day the cron did not
+ * run was a reminder lost rather than deferred, and at a weekly spacing that
+ * would cost a whole notch. Asking "has it been long enough since the last one"
+ * has neither fault: a late run still sends, it just sends late.
+ *
+ * The shape: quiet until a month out, weekly through that month, every other
+ * day in the final week, and weekly again once it is past due — because a date
+ * that has slipped is the one most worth chasing.
+ *
+ * Returns null when nothing is owed today.
  */
-const LEAD_DAYS = [14, 7, 3, 1, 0, -1];
+const FAR_HORIZON_DAYS = 30;
+/* Four weekly chases after the date, then email stops. Past a month overdue
+   it has plainly not worked on this one and it is a phone call, not another
+   message. Carrying on only teaches people to filter us. */
+const OVERDUE_GIVE_UP_DAYS = 30;
+
+function reminderIntervalDays(daysUntil: number): number | null {
+  if (daysUntil > FAR_HORIZON_DAYS) return null;
+  if (daysUntil > 7) return 7;
+  /* The due date always writes. At every other spacing it could fall a day
+     after the previous one and be skipped, and the day the thing is actually
+     due is the one email nobody should miss. */
+  if (daysUntil === 0) return 0;
+  if (daysUntil > 0) return 2;
+  if (daysUntil >= -OVERDUE_GIVE_UP_DAYS) return 7;
+  return null;
+}
 
 /** Whole days between two `date` columns. Both are read as UTC, so no drift. */
 function daysBetween(from: string, to: string): number {
@@ -66,12 +92,14 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
   try {
     admin = createAdminClient();
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Supabase is not configured." };
+    const error = e instanceof Error ? e.message : "Supabase is not configured.";
+    console.error("[deadline-reminders] could not start:", error);
+    return { ok: false, error };
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const earliest = addDays(today, Math.min(...LEAD_DAYS));
-  const latest = addDays(today, Math.max(...LEAD_DAYS));
+  const earliest = addDays(today, -OVERDUE_GIVE_UP_DAYS);
+  const latest = addDays(today, FAR_HORIZON_DAYS);
 
   const { data, error } = await admin
     .from("client_deadlines")
@@ -81,7 +109,10 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
     .lte("due_on", latest)
     .order("due_on", { ascending: true });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[deadline-reminders] query failed:", error.message);
+    return { ok: false, error: error.message };
+  }
 
   const rows = (data ?? []) as unknown as DeadlineRow[];
   let sent = 0;
@@ -90,9 +121,13 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
 
   for (const row of rows) {
     const days = daysBetween(today, row.due_on);
-    // Between two lead times, or already written to today (a manual re-run, or
-    // a retry after a partial failure) — nothing to do.
-    if (!LEAD_DAYS.includes(days) || row.last_reminded_on === today) {
+    const interval = reminderIntervalDays(days);
+    /* Enough time since the last one, rather than an exact lead day. `since`
+       is null the first time, which always sends. Zero means we already wrote
+       today — a manual re-run or a retry after a partial failure — and must not
+       write again whatever the interval says. */
+    const since = row.last_reminded_on ? daysBetween(row.last_reminded_on, today) : null;
+    if (interval === null || since === 0 || (since !== null && since < interval)) {
       skipped++;
       continue;
     }
@@ -124,6 +159,28 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
       .update({ last_reminded_on: today })
       .eq("id", row.id);
     sent++;
+  }
+
+  if (failures.length) {
+    /* CloudWatch is the floor: it holds this even when alerting is unconfigured
+       or the mail provider is the thing that broke. */
+    console.error(
+      `[deadline-reminders] ${failures.length} of ${rows.length} failed on ${today}`,
+      failures,
+    );
+    /* Best effort, and deliberately not awaited into the result: a run that sent
+       most of its mail is still a run that worked, and an alert that cannot be
+       delivered must not turn it into an error. */
+    await sendOpsAlert(`Deadline reminders: ${failures.length} failed`, [
+      `Run date: ${today}`,
+      `Scanned ${rows.length}, sent ${sent}, skipped ${skipped}, failed ${failures.length}.`,
+      "",
+      ...failures.map((f) => `- ${f.id}: ${f.reason}`),
+      "",
+      "These clients did not get their reminder. The run does not retry them:",
+      "the next lead day is the next chance, and for a deadline that is already",
+      "close there may not be one.",
+    ]).catch(() => {});
   }
 
   return { ok: true, date: today, scanned: rows.length, sent, skipped, failures };

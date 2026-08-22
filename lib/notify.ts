@@ -28,6 +28,18 @@ export async function sendProgressEmail(
   const appUrl = (process.env.PORTAL_APP_URL || "https://app.aceglobal.ai").replace(/\/+$/, "");
   const subject = `Progress update: ${milestone}`;
 
+  /* Plain text alongside the HTML — see the note in sendDeadlineEmail. */
+  const text = [
+    "Progress update",
+    "",
+    milestone,
+    "",
+    "Good news, your application has moved forward. The full details and next steps are on your dashboard:",
+    appUrl,
+    "",
+    "You're receiving this because you have an active engagement with Ace Global.",
+  ].join("\n");
+
   const html = `<!doctype html>
   <div style="margin:0;padding:24px;background:#f5f6fa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1e2330">
     <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e6e8f0;border-radius:16px;overflow:hidden">
@@ -49,7 +61,7 @@ export async function sendProgressEmail(
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ from, to: recipient, subject, html }),
+      body: JSON.stringify({ from, to: recipient, subject, html, text }),
     });
     if (!res.ok) {
       let detail = "";
@@ -100,6 +112,21 @@ export async function sendDeadlineEmail(
     year: "numeric",
   });
 
+  /* Plain text alongside the HTML. Sending HTML alone is a spam signal in its
+     own right, and a deadline reminder that lands in spam has done nothing at
+     all — this is the one email in the product where delivery IS the feature. */
+  const text = [
+    overdue ? "Overdue" : "Upcoming deadline",
+    "",
+    title,
+    `Due ${dueLabel} (${when}).`,
+    "",
+    "Your dashboard has the details, and we'll be in touch if we need anything from you:",
+    appUrl,
+    "",
+    "You're receiving this because you have an active engagement with Ace Global.",
+  ].join("\n");
+
   const html = `<!doctype html>
   <div style="margin:0;padding:24px;background:#f5f6fa;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#1e2330">
     <div style="max-width:520px;margin:0 auto;background:#ffffff;border:1px solid #e6e8f0;border-radius:16px;overflow:hidden">
@@ -118,7 +145,7 @@ export async function sendDeadlineEmail(
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: recipient, subject, html }),
+      body: JSON.stringify({ from, to: recipient, subject, html, text }),
     });
     if (!res.ok) {
       let detail = "";
@@ -150,4 +177,45 @@ function escapeHtml(s: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+}
+
+/**
+ * Tells a human that a scheduled job went wrong.
+ *
+ * The reminder run already collected its failures and handed them back in the
+ * response body, which nothing reads: EventBridge sees a 200 and moves on. So a
+ * dead Resend key, or a client with no address on file, would stop reminders
+ * going out and the first anyone would know is a client missing a filing date.
+ *
+ * Plain text on purpose. This is mail to ourselves, and the point is that it is
+ * readable in a notification preview without opening anything.
+ */
+export async function sendOpsAlert(
+  subject: string,
+  lines: string[],
+): Promise<{ ok: boolean; error?: string }> {
+  const key = process.env.RESEND_API_KEY;
+  const to = (process.env.OPS_ALERT_EMAIL ?? "").trim();
+  /* No address configured is not an error worth throwing over — the caller has
+     already written the same detail to the log, which is the floor. */
+  if (!to) return { ok: false, error: "OPS_ALERT_EMAIL is not set." };
+  if (!key) return { ok: false, error: "RESEND_API_KEY is missing." };
+
+  const from = process.env.NOTIFY_EMAIL_FROM || "Ace Global <notifications@updates.aceglobal.ai>";
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from,
+        to,
+        subject: `[Ace Global] ${subject}`,
+        text: lines.join("\n"),
+      }),
+    });
+    if (!res.ok) return { ok: false, error: `Resend ${res.status}` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Alert send failed." };
+  }
 }

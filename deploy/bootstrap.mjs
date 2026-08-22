@@ -19,6 +19,7 @@
 //   /aceglobal/admin/RESEND_API_KEY
 //   /aceglobal/admin/CRON_SECRET
 //   /aceglobal/admin/PORTAL_APP_URL
+//   /aceglobal/admin/OPS_ALERT_EMAIL     (optional; where a failed reminder run reports itself)
 const PREFIX = process.env.SSM_PARAMETER_PREFIX || "";
 
 if (PREFIX) {
