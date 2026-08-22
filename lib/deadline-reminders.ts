@@ -33,9 +33,10 @@ import { describeDueIn, sendDeadlineEmail, sendOpsAlert } from "@/lib/notify";
  * Returns null when nothing is owed today.
  */
 const FAR_HORIZON_DAYS = 30;
-/* Past this, email has plainly stopped working on this one and something else
-   needs to happen. Nagging forever only teaches people to filter us. */
-const OVERDUE_GIVE_UP_DAYS = 90;
+/* Four weekly chases after the date, then email stops. Past a month overdue
+   it has plainly not worked on this one and it is a phone call, not another
+   message. Carrying on only teaches people to filter us. */
+const OVERDUE_GIVE_UP_DAYS = 30;
 
 function reminderIntervalDays(daysUntil: number): number | null {
   if (daysUntil > FAR_HORIZON_DAYS) return null;
