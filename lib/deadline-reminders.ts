@@ -1,6 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { describeDueIn, sendDeadlineEmail } from "@/lib/notify";
+import { describeDueIn, sendDeadlineEmail, sendOpsAlert } from "@/lib/notify";
 
 /**
  * Emails clients about due dates that are coming up, and pushes the same notice
@@ -66,7 +66,9 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
   try {
     admin = createAdminClient();
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "Supabase is not configured." };
+    const error = e instanceof Error ? e.message : "Supabase is not configured.";
+    console.error("[deadline-reminders] could not start:", error);
+    return { ok: false, error };
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -81,7 +83,10 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
     .lte("due_on", latest)
     .order("due_on", { ascending: true });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    console.error("[deadline-reminders] query failed:", error.message);
+    return { ok: false, error: error.message };
+  }
 
   const rows = (data ?? []) as unknown as DeadlineRow[];
   let sent = 0;
@@ -124,6 +129,28 @@ export async function runDeadlineReminders(): Promise<ReminderRun> {
       .update({ last_reminded_on: today })
       .eq("id", row.id);
     sent++;
+  }
+
+  if (failures.length) {
+    /* CloudWatch is the floor: it holds this even when alerting is unconfigured
+       or the mail provider is the thing that broke. */
+    console.error(
+      `[deadline-reminders] ${failures.length} of ${rows.length} failed on ${today}`,
+      failures,
+    );
+    /* Best effort, and deliberately not awaited into the result: a run that sent
+       most of its mail is still a run that worked, and an alert that cannot be
+       delivered must not turn it into an error. */
+    await sendOpsAlert(`Deadline reminders: ${failures.length} failed`, [
+      `Run date: ${today}`,
+      `Scanned ${rows.length}, sent ${sent}, skipped ${skipped}, failed ${failures.length}.`,
+      "",
+      ...failures.map((f) => `- ${f.id}: ${f.reason}`),
+      "",
+      "These clients did not get their reminder. The run does not retry them:",
+      "the next lead day is the next chance, and for a deadline that is already",
+      "close there may not be one.",
+    ]).catch(() => {});
   }
 
   return { ok: true, date: today, scanned: rows.length, sent, skipped, failures };
